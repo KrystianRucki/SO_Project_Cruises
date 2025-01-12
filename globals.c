@@ -20,7 +20,7 @@ void init_sem()
     }
 
     ticketq_lock = (sem_t*)mmap(NULL, sizeof(sem_t),protection_type,visibility_type,-1,0);
-    if(molo_capacity == MAP_FAILED)
+    if(ticketq_lock == MAP_FAILED)
     {
         perror("ticketq_lock mmap failed");
         exit(1);

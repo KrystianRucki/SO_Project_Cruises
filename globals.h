@@ -9,8 +9,8 @@
 
 //entering molo, ticket office queue lock, passenger in queue counter
 extern sem_t* molo_capacity;
-extern sem_t* ticketq_lock;
-extern int* ticketq_cnt;  // Licznik pasażerów w kolejce
+extern sem_t* ticketq_lock; // zapobiega wyścigom do kasy
+extern int* ticketq_cnt;  // Licznik pasażerów w kolejce - zastanowic sie czy wsm jest potrzebny
 #endif //GLOBALS_H
 
 
