@@ -9,12 +9,25 @@ void passenger_cycle()
 
     sleep(3); //czas oczekiwania w kolejce, ktos ustawil sie juz w kolejce, czas w ktorym kasjer tez cos robi (np. uklada dokumenty albo paragony)
     
-    sem_wait(ticket_pipe_lock);
-    int respons = puchase_process();
-    sem_post(ticket_pipe_lock);
+    //przy kasie, komunikacja z cashier
+    sem_wait(cashier_lock);
+    int decision = puchase_process(age); //1 - pozytywna decyzja, 0 - negatywna decyzja, nie przyznano biletu
+    sem_post(cashier_lock);
 
-
-
+    if(decision == 0)
+    {
+        printf("Passenger %d couldn't buy a ticket. Leaving the queue.\n", getpid());
+        leave_ticketqueue();
+        leave_molo();
+    }
+    else
+    {
+        printf("Passenger %d bought a ticket successfully.\n", getpid());
+        leave_ticketqueue();
+    }
+    //tu pasazer udaje sie do kolejki do lodzi...
+    //jak wroci z wycieczki to opuszcza molo albo idzie kupic bilet jeszcze raz z znizka - zalozenie z projektu
+    leave_molo();
 }
 
 void enter_molo()
@@ -24,13 +37,12 @@ void enter_molo()
     sem_wait(ticketq_lock);
     *ticketq_cnt += 1;
     sem_post(ticketq_lock);
-
 }
 
 void leave_molo()
 {
     sem_post(molo_capacity);
-    printf("passenger %d left molo\n",getpid());
+    printf("Passenger %d left molo\n",getpid());
     exit(0); //tutaj lub pod passenger_cycle
 }
 void leave_ticketqueue()
@@ -75,9 +87,12 @@ void wait_passengers()
     }
 }
 
-int puchase_process();
+int puchase_process(int age)
+{
+    
+}
 
-int generate_random_age()
+int generate_age()
 {
     int age;
     

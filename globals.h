@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <time.h>
 
 #ifndef GLOBALS_H
 #define GLOBALS_H
@@ -18,9 +20,9 @@ extern sem_t* ticketq_lock; // zapobiega wyścigom do kasy
 extern int* ticketq_cnt;  // Licznik pasażerów w kolejce - zastanowic sie czy wsm jest potrzebny
 
 //communication between passenger and cashier
-extern int passenger_cashier[2];
-extern int cashier_passenger[2];
-extern sem_t* ticket_pipe_lock;  //zapobiega sytuacji gdzie kilku pasazerow rozmawia z kasjerem w tym samym momencie
+extern int passenger_cashier[2]; // P => C, 0 - read, 1 - write fd
+extern int cashier_passenger[2]; // C => P
+extern sem_t* cashier_lock;  //zapobiega sytuacji gdzie kilku pasazerow rozmawia z kasjerem w tym samym momencie
 
 
 //boats work times, also determins if given ticket will be provided/sold
@@ -31,7 +33,11 @@ extern int* t1; //boat1 cruise time
 extern int* t2; // boat2 cruise time
 #endif //GLOBALS_H
 
-
+void init_sem();
+void share_var();
+void init_var();
+void destroy_sem();
+void destroy_var();
 /*
 exit(1); mmap
 exit(2); sem_init

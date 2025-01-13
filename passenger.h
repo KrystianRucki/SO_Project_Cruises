@@ -6,5 +6,5 @@ void wait_passengers();
 void enter_molo();
 void leave_molo();
 void leave_ticketqueue();
-int puchase_process(); // communication with cashier in order to buy a ticket, returns response from cashier - if ticket has been provided or not
-int generate_age();
+int puchase_process(int age); // communication with cashier in order to buy a ticket, returns decision from cashier - if ticket has been provided or not
+int generate_random_age();
