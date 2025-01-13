@@ -7,10 +7,28 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
+#define MAX_PAS 60
+#define Tp 0
+#define Tk 120
+
+
 //entering molo, ticket office queue lock, passenger in queue counter
 extern sem_t* molo_capacity;
 extern sem_t* ticketq_lock; // zapobiega wyścigom do kasy
 extern int* ticketq_cnt;  // Licznik pasażerów w kolejce - zastanowic sie czy wsm jest potrzebny
+
+//communication between passenger and cashier
+extern int passenger_cashier[2];
+extern int cashier_passenger[2];
+extern sem_t* ticket_pipe_lock;  //zapobiega sytuacji gdzie kilku pasazerow rozmawia z kasjerem w tym samym momencie
+
+
+//boats work times, also determins if given ticket will be provided/sold
+extern int* boat_state1; // stan pierwszej lodzi
+extern int* boat_state2; // stan drugiej lodzi
+
+extern int* t1; //boat1 cruise time
+extern int* t2; // boat2 cruise time
 #endif //GLOBALS_H
 
 
@@ -19,4 +37,5 @@ exit(1); mmap
 exit(2); sem_init
 exit(3); pipe
 exit(4); munmap
+exit(6); pipe
 */

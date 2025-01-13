@@ -4,7 +4,17 @@ void passenger_cycle()
 {
     //wiek <1-80>, "losowy"
     int age = generate_age();
+    enter_molo();
+    printf("Passenger %d (age: %d) entered the molo and is waiting for ticket.\n", getpid(), age);
+
+    sleep(3); //czas oczekiwania w kolejce, ktos ustawil sie juz w kolejce, czas w ktorym kasjer tez cos robi (np. uklada dokumenty albo paragony)
     
+    sem_wait(ticket_pipe_lock);
+    int respons = puchase_process();
+    sem_post(ticket_pipe_lock);
+
+
+
 }
 
 void enter_molo()
@@ -64,6 +74,8 @@ void wait_passengers()
         }
     }
 }
+
+int puchase_process();
 
 int generate_random_age()
 {

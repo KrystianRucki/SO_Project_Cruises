@@ -1,7 +1,7 @@
 #include "globals.h"
 
 //semaphores
-sem_t* molo_capacity, *ticketq_lock;
+sem_t* molo_capacity, *ticketq_lock, *ticket_pipe_lock;
 
 //mmap
 int protection_type = PROT_READ | PROT_WRITE;
@@ -9,6 +9,14 @@ int visibility_type = MAP_SHARED | MAP_ANONYMOUS;
 
 //var
 int *ticketq_cnt;
+
+int passenger_cashier[2];
+int cashier_passenger[2];
+
+int* boat_state1; // stan pierwszej lodzi
+int* boat_state2; // stan drugiej lodzi
+int* t1; //boat1 cruise time
+int* t2; // boat2 cruise time
 
 void init_sem()
 {
@@ -26,6 +34,13 @@ void init_sem()
         exit(1);
     }
 
+    ticket_pipe_lock = (sem_t*)mmap(NULL, sizeof(sem_t),protection_type,visibility_type,-1,0);
+    if(ticket_pipe_lock == MAP_FAILED)
+    {
+        perror("ticket_pipe_lock mmap failed");
+        exit(1);
+    }
+
     if(sem_init(molo_capacity, 1, 24) == -1)
     {
         perror("molo_capacity sem_init failed");
@@ -35,6 +50,12 @@ void init_sem()
     if(sem_init(ticketq_lock, 1, 1) == -1)
     {
         perror("ticketq_lock sem_init failed");
+        exit(2);
+    }
+
+    if(sem_init(ticket_pipe_lock, 1, 1) == -1)
+    {
+        perror("ticket_pipe_lock sem_init failed");
         exit(2);
     }
 }
@@ -60,9 +81,14 @@ void destroy_sem()
 void share_var()
 {
     ticketq_cnt = (int*)mmap(NULL, sizeof(int),protection_type,visibility_type,-1,0);
-    if(ticketq_cnt == MAP_FAILED)
+    boat_state1 = (int*)mmap(NULL, sizeof(int),protection_type,visibility_type,-1,0);
+    boat_state2 = (int*)mmap(NULL, sizeof(int),protection_type,visibility_type,-1,0);
+    t1 = (int*)mmap(NULL, sizeof(int),protection_type,visibility_type,-1,0);
+    t2 = (int*)mmap(NULL, sizeof(int),protection_type,visibility_type,-1,0);
+    
+    if(ticketq_cnt == MAP_FAILED || boat_state1 == MAP_FAILED || boat_state2 == MAP_FAILED || t1 == MAP_FAILED || t2 == MAP_FAILED)
     {
-        perror("ticketq_cnt mmap failed");
+        perror("variables mmap failed");
         exit(1);
     }
 }
@@ -70,13 +96,59 @@ void share_var()
 void init_var()
 {
     *ticketq_cnt = 0;
+    *boat_state1 = 1; //1 - dziala, 0 - stopped
+    *boat_state2 = 1; //1 - dziala, 0 - stopped
+    *t1 = 15; //init with boat cruise time
+    *t2 = 20; //init with boat cruise time
+
+
+    if(pipe(passenger_cashier) == -1)
+    {
+        perror("passenger_cashier pipe failed");
+        exit(6);
+    }
+
+    if(pipe(cashier_passenger) == -1)
+    {
+        perror("cashier_passenger pipe failed");
+        exit(6);
+    }
 }
 
 void destroy_var()
 {
-    if(munmap(ticketq_cnt, sizeof(int)) == -1)
+    if (munmap(ticketq_cnt, sizeof(int)) == -1)
     {
         perror("ticketq_cnt munmap failed");
         exit(4);
     }
+
+    if (munmap(boat_state1, sizeof(int)) == -1)
+    {
+        perror("boat_state1 munmap failed");
+        exit(4);
+    }
+
+    if (munmap(boat_state2, sizeof(int)) == -1)
+    {
+        perror("boat_state2 munmap failed");
+        exit(4);
+    }
+
+    if (munmap(t1, sizeof(int)) == -1)
+    {
+        perror("t1 munmap failed");
+        exit(4);
+    }
+
+    if (munmap(t2, sizeof(int)) == -1)
+    {
+        perror("t2 munmap failed");
+        exit(4);
+    }
+
+    close(passenger_cashier[1]);
+    close(cashier_passenger[1]);
+    close(passenger_cashier[0]);
+    close(cashier_passenger[0]);
 }
