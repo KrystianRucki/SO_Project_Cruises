@@ -22,8 +22,7 @@ extern int* ticketq_cnt;  // Licznik pasażerów w kolejce - zastanowic sie czy 
 //communication between passenger and cashier
 extern int passenger_cashier[2]; // P => C, 0 - read, 1 - write fd
 extern int cashier_passenger[2]; // C => P
-extern sem_t* cashier_lock;  //zapobiega sytuacji gdzie kilku pasazerow rozmawia z kasjerem w tym samym momencie
-
+extern sem_t* passcash_pipe_lock;  //zapobiega sytuacji gdzie kilku pasazerow rozmawia z kasjerem w tym samym momencie
 
 //boats work times, also determins if given ticket will be provided/sold
 extern int* boat_state1; // stan pierwszej lodzi

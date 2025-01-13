@@ -10,9 +10,9 @@ void passenger_cycle()
     sleep(3); //czas oczekiwania w kolejce, ktos ustawil sie juz w kolejce, czas w ktorym kasjer tez cos robi (np. uklada dokumenty albo paragony)
     
     //przy kasie, komunikacja z cashier
-    sem_wait(cashier_lock);
-    int decision = puchase_process(age); //1 - pozytywna decyzja, 0 - negatywna decyzja, nie przyznano biletu
-    sem_post(cashier_lock);
+    sem_wait(passcash_pipe_lock);
+    int decision = purchase_process(age); //1 - pozytywna decyzja, 0 - negatywna decyzja, nie przyznano biletu
+    sem_post(passcash_pipe_lock);
 
     if(decision == 0)
     {
@@ -89,7 +89,28 @@ void wait_passengers()
 
 int puchase_process(int age)
 {
-    
+//passenger_cashier[2]; // P => C, 0 - read, 1 - write fd
+//cashier_passenger[2]; // C => P
+    int decision;
+    close(passenger_cashier[0]);
+    close(cashier_passenger[1]);
+
+    if(write(passenger_cashier[1], &age, sizeof(int)) == -1)
+    {
+        perror("write to cashier failed");
+        exit(1);
+    }
+
+    if(read(cashier_passenger[0], &decision, sizeof(int)) == -1)
+    {
+        perror("read from cashier failed");
+        exit(1);
+    }
+
+    close(passenger_cashier[1]);
+    close(cashier_passenger[0]);
+
+    return decision;
 }
 
 int generate_age()

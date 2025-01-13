@@ -1,7 +1,7 @@
 #include "globals.h"
 
 //semaphores
-sem_t* molo_capacity, *ticketq_lock, *cashier_lock;
+sem_t* molo_capacity, *ticketq_lock, *passcash_pipe_lock;
 
 //mmap
 int protection_type = PROT_READ | PROT_WRITE;
@@ -34,10 +34,10 @@ void init_sem()
         exit(1);
     }
 
-    cashier_lock = (sem_t*)mmap(NULL, sizeof(sem_t),protection_type,visibility_type,-1,0);
-    if(cashier_lock == MAP_FAILED)
+    passcash_pipe_lock = (sem_t*)mmap(NULL, sizeof(sem_t),protection_type,visibility_type,-1,0);
+    if(passcash_pipe_lock == MAP_FAILED)
     {
-        perror("cashier_lock mmap failed");
+        perror("passcash_pipe_lock mmap failed");
         exit(1);
     }
 
@@ -53,9 +53,9 @@ void init_sem()
         exit(2);
     }
 
-    if(sem_init(cashier_lock, 1, 1) == -1)
+    if(sem_init(passcash_pipe_lock, 1, 1) == -1)
     {
-        perror("cashier_lock sem_init failed");
+        perror("passcash_pipe_lock sem_init failed");
         exit(2);
     }
 }
@@ -64,7 +64,7 @@ void destroy_sem()
 {
     sem_destroy(ticketq_lock);
     sem_destroy(molo_capacity);
-    sem_destroy(cashier_lock);
+    sem_destroy(passcash_pipe_lock);
 
     if(munmap(ticketq_lock, sizeof(sem_t)) == -1)
     {
@@ -78,9 +78,9 @@ void destroy_sem()
         exit(4);
     }
 
-    if(munmap(cashier_lock, sizeof(sem_t)) == -1)
+    if(munmap(passcash_pipe_lock, sizeof(sem_t)) == -1)
     {
-        perror("cashier_lock munmap failed");
+        perror("passcash_pipe_lock munmap failed");
         exit(4);
     }
 }
