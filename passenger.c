@@ -39,6 +39,8 @@ void passenger_cycle()
 
     //sleep(3); //czas oczekiwania w kolejce, ktos ustawil sie juz w kolejce, czas w ktorym kasjer tez cos robi (np. uklada dokumenty albo paragony)
     
+//tutaj mozliwy problem z zatrzymaniem sie pasazerow przed komunikacja nikt ich nie odsyla, chyba wystarczy dodac petle w is_cashier_opened liczba w kolejce(w danym momencie, block semaforem zeby inni nie opuscili w tym czasie kolejki poprzednimi ifami, liczba osob w kolejce - ilosc iteracji write)
+
     //przy kasie, komunikacja z cashier
     sem_wait(passcash_pipe_lock);
     int decision = purchase_process(age); //1 - pozytywna decyzja, 0 - negatywna decyzja, nie przyznano biletu (mod to 0 1 2)

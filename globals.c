@@ -77,17 +77,30 @@ void init_sem()
     }
 }
 
-void start_time_manager()
-{
-    while(*current_time <= Tk) //sprawdz czy dobrze czas czy <> czy ()
-    {
-        sem_wait(time_lock);
-        *current_time +=1;
-        printf("global time: %d\n",*current_time);
-        sem_post(time_lock);
-        sleep(1);
-    }
-}
+// void create_time()
+// {
+//     pid_t pid = fork();
+//     if(pid == 0)
+//     {
+//         start_time_manager();
+//         exit(0);
+//     }
+//     else{
+//         wait(0);
+//     }
+// }
+
+// void start_time_manager()
+// {
+//     while(*current_time <= Tk) //sprawdz czy dobrze czas czy <> czy ()
+//     {
+//         //sem_wait(time_lock);
+//         *current_time +=1;
+//         printf("global time: %d\n",*current_time);
+//         //sem_post(time_lock);
+//         sleep(1);
+//     }
+// }
 
 void destroy_sem()
 {

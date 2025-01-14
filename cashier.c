@@ -1,5 +1,5 @@
 #include "cashier.h"
-#include <stdbool.h>
+
 void cashier_cycle() //cashier uruchamiany przed passenger
 {
     srand(time(NULL));
@@ -10,26 +10,30 @@ void cashier_cycle() //cashier uruchamiany przed passenger
         *status = is_cashier_open();
         if(*status == 0)
         {
-            printf("Dear Passenger, No more trips for today.\n");
+            printf("Dear Passenger, No more trips for today.\n"); //przy testowaniu wyszlo ze wysyla decision ale akurat nikogo nie bylo w komunikacji
             int decision = 0;
-        }
-    }
-    while(is_cashier_open())
-    {
-        process_passenger();
-    }
-    do
-    {
-        //is_cashier_open() - sprawdza czas i czy jest chociaz jedna lodka (czyli jak obie nieodstepne - bedzie closed)
+            write(cashier_passenger[1],&decision, sizeof(int)); //w teorii obecny pasazer ktory sie komunikuje
+            break; //debug na razie
+            //mozliwe ze zbedne
+            // global time: 10
+            // Passenger 8573 (age: 50) entered the molo.
+            // selected:1
+            // Ticket granted. Enjoy your trip!
+            // Passenger 8573 bought a ticket successfully.
+            // Passenger 8573 left molo
+            // Dear Passenger, No more trips for today.
+            //wychodzi na to, ze jak skonczy sie czas to tam ktos i tak trzyma komunikacje, zostanie obsluzony bo status jest jeszcze 1 w tej iteracji
+            //wiec tutaj nie wchodzi, nastepna iteracja wchodzi do tej sekcji poniewaz status = 0; tylko ze ten write do nikogo juz nie trafia
+            //^powyzsze jest tylko przy pilnowaniu czasu w is_cashier_opened();
 
-        //funkcja sprawdzjaca czy nadal ma byc otwarta kasa - przypisuje wynik 0 lub 1 do tej zmieniej "czy otwarta kasa", ta zmienna jako warunek petli, 
-        //jak f zwroci 0, to nie obsluguje pasazera czyli przekazuje decision 0 do pasazera obecnego on sobie opusci queue dzieki funkcji w passenger.c
-        //jak nie ma lodek ale jest czas to nie obsluguje pasazerow, obecny dostanie decision 0 a reszta w kolejce musi jakos tez dostac ta informacje, i tak samo reszta ma opuscic molo
-        //jak nie ma czasu (warunek konieczny) to decision dostane obecny pasazer, reszta tez musi i tak samo reszta musi opuscic molo
-        //jesli te warunki na otwarta kase sa spelnione to procesuje pasazera i tam sprawdzam warunek na decision czyli, czy dostanie bilet na podstawie wieku i dostepnych lodek
-        process_passenger(); //ci co wejda juz za kase i nastapi zamkniecie czasu badz lodek, to sa traktowani jako ostatnia wycieczka i ogranizuja taka wycieczke, chyba ze lodzie nie plyna akurat juz bo poszedl sygnal -- rozpisane w .docx trzeba wprowadzic te mechanizmy kontroli przy etapie lodek
-        //sleep(1);
-    } while (1);
+
+        }
+        process_passenger();
+        sleep(1);
+    }
+    //ci co wejda juz za kase i nastapi zamkniecie czasu badz lodek, to sa traktowani jako ostatnia wycieczka i ogranizuja taka wycieczke,
+    //chyba ze lodzie nie plyna akurat juz bo poszedl sygnal -- rozpisane w .docx trzeba wprowadzic te mechanizmy kontroli przy etapie lodek
+    //sleep(1);
     
     //ewentualne dodatkowe rzeczy tu
 }
@@ -47,32 +51,32 @@ void process_passenger()
     }
     
     // Warunki przyznania biletu - zastapic case albo sprawdzac tu tylko wiek albo czy dziecko, mniej niz 3 nie placi za bilet czyli by przechodzil po prostu ale nastolatek juz placi w teorii,
-    
     //albo sprawdzac tu tylko wiek i na tej podstawie decision 0 1 2
     //a boat_state pozniej przy ustawianiu do kolejek itd
-    if ((age < 15 || age > 70) && *boat_state2 == 0)
+    if (age < 15 || age > 70) //child or old
     {
-        // Wiek pasażera poza przedziałem 15-70, a łódka nr 2 jest niedostępna - pasażer nie płynie
-        printf("Dear Passenger, No more trips available for your age group.\n");
-        decision = 0;
-            // dziecko bedzie watkiem wiec bedzie musial przekazac swoj wiek do parenta swojego a parent tutaj, albo po prostu zmienna has child czy cos podobnego i wtedy nie trzeba robic dodatkowej komunikacji - tutaj porownamy czy ma dziecko czy jest starszy niz 70 i boat_state2 == 0
+        //printf("Dear Passenger, No more trips available for your age group.\n");
+        decision = 2;
+        //dziecko bedzie watkiem wiec bedzie musial przekazac swoj wiek do parenta swojego a parent tutaj, albo po prostu zmienna has child czy cos podobnego i wtedy nie trzeba robic dodatkowej komunikacji - tutaj porownamy czy ma dziecko czy jest starszy niz 70
     }
     else if ((age >=15 && age<=70))
     {
         // losujemy lodke 1 lub 2 w jakis sposob
         //if(nr lodki i dostepna) -> decision 1 lub 2
-
-        // Pasażer spełnia warunki i przynajmniej jedna łódka jest dostępna - może płynąć
         selected_boat = rand() % 2 + 1;
-        if(selected_boat == 1 && *boat_state1 == 1)
+        printf("selected:%d\n",selected_boat);
+
+        if(selected_boat == 1)// && *boat_state1 == 1)
         {
             decision = 1;
         }
+        else
+        {
+            decision = 2;
+        }
         printf("Ticket granted. Enjoy your trip!\n");
-        decision = 1; //tutaj mozna ktora lodka to bedzie albo decision to po prostu 0 1 2 - nie, boat1, boat2
     }
 
-    //ustawia decision i trzeba tez ustawic jakas zmienna ktora informuje pozniej do jakiej kolejki sie ma ustawic (do lodki 1 lub lodki 2)
     if(write(cashier_passenger[1], &decision, sizeof(int)) == -1)
     {
         perror("write to passenger failed");

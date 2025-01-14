@@ -9,9 +9,9 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
-#define MAX_PAS 60
+#define MAX_PAS 7
 #define Tp 0
-#define Tk 120
+#define Tk 9
 
 
 //entering molo, ticket office queue lock, passenger in queue counter
@@ -43,7 +43,8 @@ extern int* status; //sprawia, ze nie wchodza na molo, nie ustawiaja sie do kole
 void init_sem();
 void share_var();
 void init_var();
-void start_time_manager();
+// void create_time();
+// void start_time_manager();
 void destroy_sem();
 void destroy_var();
 /*
