@@ -30,11 +30,20 @@ extern int* boat_state2; // stan drugiej lodzi
 
 extern int* t1; //boat1 cruise time
 extern int* t2; // boat2 cruise time
+
+//time manager
+extern int * current_time;
+extern sem_t* time_lock;
+
+extern int* status; //sprawia, ze nie wchodza na molo, nie ustawiaja sie do kolejki, kasa ze jest zamknieta obsluga ludzi ktorzy zostali po zamknieciu
+//w kolejce do kasy, obsluzenie ich signalem albo po kolei write decision do pipe * ilosc osob w kolejce pobierana raz - ilosc iteracji write - raczej nie bedzie potrzebne bo bede sprawzdal status  w passenger cycle
+
 #endif //GLOBALS_H
 
 void init_sem();
 void share_var();
 void init_var();
+void start_time_manager();
 void destroy_sem();
 void destroy_var();
 /*

@@ -3,15 +3,45 @@
 void passenger_cycle()
 {
     //wiek <1-80>, "losowy"
+    //generowanie losowo czy bedzie z dzieckiem -> dziecko jako watek, w watku wywolujemy drugiego sem_wait na molo_capacity
     int age = generate_age();
-    enter_molo();
-    printf("Passenger %d (age: %d) entered the molo and is waiting for ticket.\n", getpid(), age);
+    if(*status == 0)
+    {
+        leave_molo();
+    }
+    else
+    {
+        enter_molo();
+        printf("Passenger %d (age: %d) entered the molo.\n",getpid(), age);
+    }
 
-    sleep(3); //czas oczekiwania w kolejce, ktos ustawil sie juz w kolejce, czas w ktorym kasjer tez cos robi (np. uklada dokumenty albo paragony)
+    if(*status == 0)
+    {
+        leave_molo();
+    }
+    else
+    {
+        enter_ticket_queue();
+    }
+    
+    if(*status == 0)
+    {
+        leave_ticketqueue();
+        leave_molo();
+    }
+    //jak juz wejdzie to tez zeby sprawdzal czy status zeby nie potrzebnie nie ustawiac sie w kolejce do kasy, rozdzielic enter_molo z enter queue
+    //ci co wejda na molo ale nie beda jeszcze w queue to niech leave_molo
+    //ci co wejda i ustawia sie do kolejki, beda dostawac po prostu decision 0 po kolei z komunikacji
+    //- musze miec tam liczbe osob w kolejce zeby wiedziec ile razy napisac decision do pipe, przekazemy queue ctn do cashier_cycle
+    //- albo zamiast tego zrobic signal po prostu zeby sie rozeszli, jak signal to lapie semafor i wychodzi z kolejki i molo (czyli wywola leave_queue())
+    
+    //is waiting for ticket.\n", getpid(), age) -printf na enters queue and wait for ticket
+
+    //sleep(3); //czas oczekiwania w kolejce, ktos ustawil sie juz w kolejce, czas w ktorym kasjer tez cos robi (np. uklada dokumenty albo paragony)
     
     //przy kasie, komunikacja z cashier
     sem_wait(passcash_pipe_lock);
-    int decision = purchase_process(age); //1 - pozytywna decyzja, 0 - negatywna decyzja, nie przyznano biletu
+    int decision = purchase_process(age); //1 - pozytywna decyzja, 0 - negatywna decyzja, nie przyznano biletu (mod to 0 1 2)
     sem_post(passcash_pipe_lock);
 
     if(decision == 0)
@@ -23,6 +53,7 @@ void passenger_cycle()
     else
     {
         printf("Passenger %d bought a ticket successfully.\n", getpid());
+        //goes to boat1 boat2
         leave_ticketqueue();
     }
     //tu pasazer udaje sie do kolejki do lodzi...
@@ -33,10 +64,6 @@ void passenger_cycle()
 void enter_molo()
 {
     sem_wait(molo_capacity);
-
-    sem_wait(ticketq_lock);
-    *ticketq_cnt += 1;
-    sem_post(ticketq_lock);
 }
 
 void leave_molo()
@@ -44,6 +71,12 @@ void leave_molo()
     sem_post(molo_capacity);
     printf("Passenger %d left molo\n",getpid());
     exit(0); //tutaj lub pod passenger_cycle
+}
+void enter_ticket_queue()
+{
+    sem_wait(ticketq_lock);
+    *ticketq_cnt += 1;
+    sem_post(ticketq_lock);
 }
 void leave_ticketqueue()
 {
@@ -68,6 +101,7 @@ void create_passengers()
         }
         else if (pid == 0)
         {
+            srand(time(NULL) + getpid());
             passenger_cycle();
         }
         wait_time = rand() % 10 + 1;
@@ -87,10 +121,8 @@ void wait_passengers()
     }
 }
 
-int puchase_process(int age)
+int purchase_process(int age)
 {
-//passenger_cashier[2]; // P => C, 0 - read, 1 - write fd
-//cashier_passenger[2]; // C => P
     int decision;
     close(passenger_cashier[0]);
     close(cashier_passenger[1]);
