@@ -15,31 +15,34 @@ void cashier_cycle() //cashier uruchamiany przed passenger
             int decision = 0;
             write(cashier_passenger[1],&decision, sizeof(int)); //w teorii obecny pasazer ktory sie komunikuje
             break; //debug na razie
-            //mozliwe ze zbedne
-            // global time: 10
-            // Passenger 8573 (age: 50) entered the molo.
-            // selected:1
-            // Ticket granted. Enjoy your trip!
-            // Passenger 8573 bought a ticket successfully.
-            // Passenger 8573 left molo
-            // Dear Passenger, No more trips for today.
-            //wychodzi na to, ze jak skonczy sie czas to tam ktos i tak trzyma komunikacje, zostanie obsluzony bo status jest jeszcze 1 w tej iteracji
-            //wiec tutaj nie wchodzi, nastepna iteracja wchodzi do tej sekcji poniewaz status = 0; tylko ze ten write do nikogo juz nie trafia
-            //^powyzsze jest tylko przy pilnowaniu czasu w is_cashier_opened();
-
-
-        }
-        
-        // if(sem_trywait(passcash_pipe_lock) == 0)
-        // {
-            //printf("sprawdzam czy pipe lock prze try zanim pasazer zlapie lock\n");
-            // printf("wszedl do semtrywait\n");
-            if(sem_trywait(read_ready) == 0){
-                process_passenger();
-            }
+            //mechanizm sie przydal w sytuacji kiedy pasazer wszedl w passcash_pipe_lock wyslal wiek do cashier, skonczyl sie czas - tutaj wszedl if == 0
+            //kasjer wyslal do niego decision 0, a nastepny pasazer to juz poza tym tutaj - wgl nie wszedl na molo
+            //dostowac tutaj funckje
+            //przetestowac czy jest szansa ze tutaj by wszedl jeszcze jakis nastepny pasazer, w takim razie musi byc continue zamiast break, zeby dostali decision 0
             
-        // }
-        
+            //Passenger 7200 (age: 43) entered the molo.
+            // Passenger 7200 entered the queue.
+            // Passenger 7200 przed pipe lock
+            // ma pipe lock
+            // enterd purchase_process
+            // wrote age to cashier
+            // global time: 10
+            // cashier status:0
+            // Dear Passenger, No more trips for today.
+            // read from cashier
+            // nie ma pipe lock
+            // Passenger 7200 couldn't buy a ticket. Leaving the queue.
+            // Passenger 7200 left the queue.
+            // Passenger 7200 left molo
+            // Passenger 7201 left molo
+            // timemanager finished
+            // creates waitsafter waits
+        }
+
+        if(sem_trywait(read_ready) == 0)
+        {
+            process_passenger();
+        }
         sleep(1);
     }
     //ci co wejda juz za kase i nastapi zamkniecie czasu badz lodek, to sa traktowani jako ostatnia wycieczka i ogranizuja taka wycieczke,
@@ -54,23 +57,18 @@ void process_passenger()
     close(cashier_passenger[0]);
     close(passenger_cashier[1]);
 
-    // if(sem_trywait(passcash_pipe_lock) == -1)
-    // {
-        printf("processing passenger, czeka na odczyt\n");
-        if(read(passenger_cashier[0], &age, sizeof(int)) == -1)
-        {
-            perror("read from passenger failed");
-            exit(1);
-        }
-    // }
+    printf("processing passenger, czeka na odczyt\n");
+    if(read(passenger_cashier[0], &age, sizeof(int)) == -1)
+    {
+        perror("read from passenger failed");
+        exit(1);
+    }
 
-    
     // Warunki przyznania biletu - zastapic case albo sprawdzac tu tylko wiek albo czy dziecko, mniej niz 3 nie placi za bilet czyli by przechodzil po prostu ale nastolatek juz placi w teorii,
     //albo sprawdzac tu tylko wiek i na tej podstawie decision 0 1 2
     //a boat_state pozniej przy ustawianiu do kolejek itd
     if (age < 15 || age > 70) //child or old
     {
-        //printf("Dear Passenger, No more trips available for your age group.\n");
         decision = 2;
         printf("selected:2-c\n");
         //dziecko bedzie watkiem wiec bedzie musial przekazac swoj wiek do parenta swojego a parent tutaj, albo po prostu zmienna has child czy cos podobnego i wtedy nie trzeba robic dodatkowej komunikacji - tutaj porownamy czy ma dziecko czy jest starszy niz 70
@@ -110,9 +108,6 @@ bool is_cashier_open()
     {
         // Obie łódki niedostępne - kasa zamknieta - pasażer nie płynie
         printf("Dear Passengers, No more trips for today.\n");
-        //mechanizm, ktory przekaze ta informacje takze reszcie kolejki i zapewni ze opuszcza kolejke
-        //kasa zamknieta reszta osob w kolejce tez ma wyjsc i opuscic both; queue and molo - implementacja here
-        //musi zwracac tez decision 0 ale to juz w cashier_cycle()
         return false;
     }
 

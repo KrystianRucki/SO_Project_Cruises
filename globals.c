@@ -24,12 +24,6 @@ int* status;
 
 void init_sem()
 {
-    read_ready = (sem_t*)mmap(NULL, sizeof(sem_t),protection_type,visibility_type,-1,0);
-    if(read_ready == MAP_FAILED)
-    {
-        perror("read_ready mmap failed");
-        exit(1);
-    }
     molo_capacity = (sem_t*)mmap(NULL, sizeof(sem_t),protection_type,visibility_type,-1,0);
     if(molo_capacity == MAP_FAILED)
     {
@@ -58,11 +52,13 @@ void init_sem()
         exit(1);
     }
 
-    if(sem_init(read_ready, 1, 0) == -1)
+    read_ready = (sem_t*)mmap(NULL, sizeof(sem_t),protection_type,visibility_type,-1,0);
+    if(read_ready == MAP_FAILED)
     {
-        perror("read_ready sem_init failed");
-        exit(2);
+        perror("read_ready mmap failed");
+        exit(1);
     }
+
     if(sem_init(molo_capacity, 1, 24) == -1)
     {
         perror("molo_capacity sem_init failed");
@@ -86,32 +82,13 @@ void init_sem()
         perror("time_lock sem_init failed");
         exit(2);
     }
+
+    if(sem_init(read_ready, 1, 0) == -1)
+    {
+        perror("read_ready sem_init failed");
+        exit(2);
+    }
 }
-
-// void create_time()
-// {
-//     pid_t pid = fork();
-//     if(pid == 0)
-//     {
-//         start_time_manager();
-//         exit(0);
-//     }
-//     else{
-//         wait(0);
-//     }
-// }
-
-// void start_time_manager()
-// {
-//     while(*current_time <= Tk) //sprawdz czy dobrze czas czy <> czy ()
-//     {
-//         //sem_wait(time_lock);
-//         *current_time +=1;
-//         printf("global time: %d\n",*current_time);
-//         //sem_post(time_lock);
-//         sleep(1);
-//     }
-// }
 
 void destroy_sem()
 {
@@ -120,12 +97,6 @@ void destroy_sem()
     sem_destroy(passcash_pipe_lock);
     sem_destroy(time_lock);
     sem_destroy(read_ready);
-
-    if(munmap(read_ready, sizeof(sem_t)) == -1)
-    {
-        perror("read_ready munmap failed");
-        exit(4);
-    }
 
     if(munmap(ticketq_lock, sizeof(sem_t)) == -1)
     {
@@ -148,6 +119,12 @@ void destroy_sem()
     if(munmap(time_lock, sizeof(sem_t)) == -1)
     {
         perror("time_lock munmap failed");
+        exit(4);
+    }
+
+    if(munmap(read_ready, sizeof(sem_t)) == -1)
+    {
+        perror("read_ready munmap failed");
         exit(4);
     }
 }

@@ -2,7 +2,6 @@
 
 void passenger_cycle()
 {
-    //wiek <1-80>, "losowy"
     //generowanie losowo czy bedzie z dzieckiem -> dziecko jako watek, w watku wywolujemy drugiego sem_wait na molo_capacity
     int age = generate_age();
     if(*status == 0)
@@ -35,16 +34,11 @@ void passenger_cycle()
     //- musze miec tam liczbe osob w kolejce zeby wiedziec ile razy napisac decision do pipe, przekazemy queue ctn do cashier_cycle
     //- albo zamiast tego zrobic signal po prostu zeby sie rozeszli, jak signal to lapie semafor i wychodzi z kolejki i molo (czyli wywola leave_queue())
     
-    //is waiting for ticket.\n", getpid(), age) -printf na enters queue and wait for ticket
-
-    //sleep(3); //czas oczekiwania w kolejce, ktos ustawil sie juz w kolejce, czas w ktorym kasjer tez cos robi (np. uklada dokumenty albo paragony)
-    
-//tutaj mozliwy problem z zatrzymaniem sie pasazerow przed komunikacja nikt ich nie odsyla, chyba wystarczy dodac petle w is_cashier_opened liczba w kolejce(w danym momencie, block semaforem zeby inni nie opuscili w tym czasie kolejki poprzednimi ifami, liczba osob w kolejce - ilosc iteracji write)
     printf("Passenger %d przed pipe lock\n",getpid());
     //przy kasie, komunikacja z cashier
     sem_wait(passcash_pipe_lock);
     printf("ma pipe lock\n");
-    int decision = purchase_process(age); //1 - pozytywna decyzja, 0 - negatywna decyzja, nie przyznano biletu (mod to 0 1 2)
+    int decision = purchase_process(age); // 0 1 2, nie boat1 boat2
     sem_post(passcash_pipe_lock);
     printf("nie ma pipe lock\n");
     if(decision == 0)
@@ -108,9 +102,9 @@ void create_passengers()
             srand(time(NULL) + getpid());
             passenger_cycle();
         }
-        //wait_time = rand() % 10 + 1;
-        //sleep(wait_time);
-        sleep(1);
+        wait_time = rand() % 10 + 1;
+        sleep(wait_time);
+        //sleep(1);
     }
 }
 
@@ -131,13 +125,16 @@ int purchase_process(int age)
     int decision;
     close(passenger_cashier[0]);
     close(cashier_passenger[1]);
-    printf("enterd purchase_process\n");
+
+    printf("entered purchase_process\n");
     if(*status == 0)
     {
-        printf("entered status 0 purchase process - didnt close pipes");
-        decision =0;
+        printf("entered status 0 purchase process");
+        decision = 0;
         return decision;
-    }//przeniesc do cashier najwyzej
+        close(passenger_cashier[1]);
+        close(cashier_passenger[0]);
+    }
     if(write(passenger_cashier[1], &age, sizeof(int)) == -1)
     {
         perror("write to cashier failed");

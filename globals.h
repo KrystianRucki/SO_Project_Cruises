@@ -9,7 +9,7 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
-#define MAX_PAS 2
+#define MAX_PAS 16
 #define Tp 0
 #define Tk 9
 
@@ -24,6 +24,7 @@ extern int passenger_cashier[2]; // P => C, 0 - read, 1 - write fd
 extern int cashier_passenger[2]; // C => P
 extern sem_t* passcash_pipe_lock;  //zapobiega sytuacji gdzie kilku pasazerow rozmawia z kasjerem w tym samym momencie
 extern sem_t* read_ready; //delete if not necessary
+
 //boats work times, also determins if given ticket will be provided/sold
 extern int* boat_state1; // stan pierwszej lodzi
 extern int* boat_state2; // stan drugiej lodzi
@@ -43,8 +44,6 @@ extern int* status; //sprawia, ze nie wchodza na molo, nie ustawiaja sie do kole
 void init_sem();
 void share_var();
 void init_var();
-// void create_time();
-// void start_time_manager();
 void destroy_sem();
 void destroy_var();
 /*
