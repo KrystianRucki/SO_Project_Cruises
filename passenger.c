@@ -21,7 +21,7 @@ void passenger_cycle()
     }
     else
     {
-        enter_ticket_queue();
+        enter_ticket_queue();printf("Passenger %d entered the queue.\n",getpid());
     }
     
     if(*status == 0)
@@ -40,12 +40,13 @@ void passenger_cycle()
     //sleep(3); //czas oczekiwania w kolejce, ktos ustawil sie juz w kolejce, czas w ktorym kasjer tez cos robi (np. uklada dokumenty albo paragony)
     
 //tutaj mozliwy problem z zatrzymaniem sie pasazerow przed komunikacja nikt ich nie odsyla, chyba wystarczy dodac petle w is_cashier_opened liczba w kolejce(w danym momencie, block semaforem zeby inni nie opuscili w tym czasie kolejki poprzednimi ifami, liczba osob w kolejce - ilosc iteracji write)
-
+    printf("Passenger %d przed pipe lock\n",getpid());
     //przy kasie, komunikacja z cashier
     sem_wait(passcash_pipe_lock);
+    printf("ma pipe lock\n");
     int decision = purchase_process(age); //1 - pozytywna decyzja, 0 - negatywna decyzja, nie przyznano biletu (mod to 0 1 2)
     sem_post(passcash_pipe_lock);
-
+    printf("nie ma pipe lock\n");
     if(decision == 0)
     {
         printf("Passenger %d couldn't buy a ticket. Leaving the queue.\n", getpid());
@@ -85,6 +86,7 @@ void leave_ticketqueue()
     sem_wait(ticketq_lock);
     *ticketq_cnt -= 1;
     sem_post(ticketq_lock);
+    printf("Passenger %d left the queue.\n",getpid());
 }
 
 void create_passengers()
@@ -106,8 +108,9 @@ void create_passengers()
             srand(time(NULL) + getpid());
             passenger_cycle();
         }
-        wait_time = rand() % 10 + 1;
-        sleep(wait_time);
+        //wait_time = rand() % 10 + 1;
+        //sleep(wait_time);
+        sleep(1);
     }
 }
 
@@ -128,19 +131,27 @@ int purchase_process(int age)
     int decision;
     close(passenger_cashier[0]);
     close(cashier_passenger[1]);
-
+    printf("enterd purchase_process\n");
+    if(*status == 0)
+    {
+        printf("entered status 0 purchase process - didnt close pipes");
+        decision =0;
+        return decision;
+    }//przeniesc do cashier najwyzej
     if(write(passenger_cashier[1], &age, sizeof(int)) == -1)
     {
         perror("write to cashier failed");
         exit(1);
     }
+    printf("wrote age to cashier\n");
+    sem_post(read_ready);
 
     if(read(cashier_passenger[0], &decision, sizeof(int)) == -1)
     {
         perror("read from cashier failed");
         exit(1);
     }
-
+    printf("read from cashier\n");
     close(passenger_cashier[1]);
     close(cashier_passenger[0]);
 

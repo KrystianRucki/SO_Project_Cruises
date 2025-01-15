@@ -4,10 +4,11 @@ void cashier_cycle() //cashier uruchamiany przed passenger
 {
     srand(time(NULL));
     //kasa dziala w czasie Tp Tk, do Tk sprzedaje bilety,
-    //dziala takze pod warunkiem ze przynajmniej jedna lodz state = 1, nie zostala zatrzymana przez policjanta
+    //dziala takze pod warunkiem ze przynajmniej jedna lodz state = 1 i jest czas
     while(1)
     {
         *status = is_cashier_open();
+        printf("cashier status:%d\n",*status);
         if(*status == 0)
         {
             printf("Dear Passenger, No more trips for today.\n"); //przy testowaniu wyszlo ze wysyla decision ale akurat nikogo nie bylo w komunikacji
@@ -28,12 +29,21 @@ void cashier_cycle() //cashier uruchamiany przed passenger
 
 
         }
-        process_passenger();
+        
+        // if(sem_trywait(passcash_pipe_lock) == 0)
+        // {
+            //printf("sprawdzam czy pipe lock prze try zanim pasazer zlapie lock\n");
+            // printf("wszedl do semtrywait\n");
+            if(sem_trywait(read_ready) == 0){
+                process_passenger();
+            }
+            
+        // }
+        
         sleep(1);
     }
     //ci co wejda juz za kase i nastapi zamkniecie czasu badz lodek, to sa traktowani jako ostatnia wycieczka i ogranizuja taka wycieczke,
     //chyba ze lodzie nie plyna akurat juz bo poszedl sygnal -- rozpisane w .docx trzeba wprowadzic te mechanizmy kontroli przy etapie lodek
-    //sleep(1);
     
     //ewentualne dodatkowe rzeczy tu
 }
@@ -44,11 +54,16 @@ void process_passenger()
     close(cashier_passenger[0]);
     close(passenger_cashier[1]);
 
-    if(read(passenger_cashier[0], &age, sizeof(int)) == -1)
-    {
-        perror("read from passenger failed");
-        exit(1);
-    }
+    // if(sem_trywait(passcash_pipe_lock) == -1)
+    // {
+        printf("processing passenger, czeka na odczyt\n");
+        if(read(passenger_cashier[0], &age, sizeof(int)) == -1)
+        {
+            perror("read from passenger failed");
+            exit(1);
+        }
+    // }
+
     
     // Warunki przyznania biletu - zastapic case albo sprawdzac tu tylko wiek albo czy dziecko, mniej niz 3 nie placi za bilet czyli by przechodzil po prostu ale nastolatek juz placi w teorii,
     //albo sprawdzac tu tylko wiek i na tej podstawie decision 0 1 2
@@ -57,6 +72,7 @@ void process_passenger()
     {
         //printf("Dear Passenger, No more trips available for your age group.\n");
         decision = 2;
+        printf("selected:2-c\n");
         //dziecko bedzie watkiem wiec bedzie musial przekazac swoj wiek do parenta swojego a parent tutaj, albo po prostu zmienna has child czy cos podobnego i wtedy nie trzeba robic dodatkowej komunikacji - tutaj porownamy czy ma dziecko czy jest starszy niz 70
     }
     else if ((age >=15 && age<=70))

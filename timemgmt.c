@@ -28,4 +28,5 @@ void start_time_manager()
         sem_post(time_lock);
         sleep(1);
     }
+    printf("timemanager finished\n");
 }

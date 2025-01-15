@@ -1,7 +1,7 @@
 #include "globals.h"
 
 //semaphores
-sem_t* molo_capacity, *ticketq_lock, *passcash_pipe_lock, *time_lock;
+sem_t* molo_capacity, *ticketq_lock, *passcash_pipe_lock, *time_lock, *read_ready;
 
 //mmap
 int protection_type = PROT_READ | PROT_WRITE;
@@ -24,6 +24,12 @@ int* status;
 
 void init_sem()
 {
+    read_ready = (sem_t*)mmap(NULL, sizeof(sem_t),protection_type,visibility_type,-1,0);
+    if(read_ready == MAP_FAILED)
+    {
+        perror("read_ready mmap failed");
+        exit(1);
+    }
     molo_capacity = (sem_t*)mmap(NULL, sizeof(sem_t),protection_type,visibility_type,-1,0);
     if(molo_capacity == MAP_FAILED)
     {
@@ -52,6 +58,11 @@ void init_sem()
         exit(1);
     }
 
+    if(sem_init(read_ready, 1, 0) == -1)
+    {
+        perror("read_ready sem_init failed");
+        exit(2);
+    }
     if(sem_init(molo_capacity, 1, 24) == -1)
     {
         perror("molo_capacity sem_init failed");
@@ -108,6 +119,13 @@ void destroy_sem()
     sem_destroy(molo_capacity);
     sem_destroy(passcash_pipe_lock);
     sem_destroy(time_lock);
+    sem_destroy(read_ready);
+
+    if(munmap(read_ready, sizeof(sem_t)) == -1)
+    {
+        perror("read_ready munmap failed");
+        exit(4);
+    }
 
     if(munmap(ticketq_lock, sizeof(sem_t)) == -1)
     {

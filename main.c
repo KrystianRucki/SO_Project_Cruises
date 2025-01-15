@@ -18,10 +18,11 @@ int main()
     create_time();
     create_cashier(); // policjant po cashier, dzieki temu mamy pewnosc ze is_cashier_open == TRUE - pierwsza iteracja petli
     create_passengers();
+    printf("creates waits");
     wait_passengers();
     wait_cashier();
     wait_time();
-
+    printf("after waits");
     destroy_var();
     destroy_sem();
 
