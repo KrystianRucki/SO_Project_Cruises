@@ -136,7 +136,6 @@ void create_passengers()
         }
         wait_time = rand() % 10 + 1;
         sleep(wait_time);
-        //sleep(1);
     }
 }
 
