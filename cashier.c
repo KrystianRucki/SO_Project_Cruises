@@ -61,6 +61,8 @@ void process_passenger()
     if(read(passenger_cashier[0], &age, sizeof(int)) == -1)
     {
         perror("read from passenger failed");
+        close(passenger_cashier[1]);
+        close(cashier_passenger[0]);
         exit(1);
     }
 
@@ -94,6 +96,8 @@ void process_passenger()
     if(write(cashier_passenger[1], &decision, sizeof(int)) == -1)
     {
         perror("write to passenger failed");
+        close(passenger_cashier[1]);
+        close(cashier_passenger[0]);
         exit(1);
     }
 

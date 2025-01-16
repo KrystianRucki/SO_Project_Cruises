@@ -1,6 +1,9 @@
 #include "globals.h"
+// #include <pthread.h>
 
 int generate_age();
+// int generate_haschild();
+// int generate_child_age();
 void enter_molo();
 void leave_molo();
 void enter_ticket_queue();

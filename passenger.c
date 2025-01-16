@@ -3,10 +3,28 @@
 void passenger_cycle()
 {
     //generowanie losowo czy bedzie z dzieckiem -> dziecko jako watek, w watku wywolujemy drugiego sem_wait na molo_capacity
+    //int passenger_data[3];
     int age = generate_age();
+    // int haschild = generate_haschild();
+    // int child_age = generate_child_age();
+    //przerobic albo na strukture, albo tablice int [age, haschild, child_age]
+    
+    // if(haschild == 1)
+    // {
+    //     pthread_t child;
+
+    //     if(pthread_create(&child, NULL, child_function, NULL) != 0)
+    //     {
+    //         perror("child pthread_create failed");
+    //         exit(1);
+    //     }
+    // }
+
     if(*status == 0)
     {
-        leave_molo();
+        printf("Passenger %d didn't enter molo\n",getpid());
+        exit(0);
+        // leave_molo();
     }
     else
     {
@@ -54,6 +72,20 @@ void passenger_cycle()
         leave_ticketqueue();
     }
     //tu pasazer udaje sie do kolejki do lodzi...
+    // if(decision == 1 && *boat_state1 == 1)
+    // {
+    //     enter_boat1_queue();
+    // }
+    // else if(decision == 2 && *boat_state2 == 1)
+    // {
+    //     enter_boat2_queue();
+    // }
+    // else
+    // {
+    //     printf("Sorry, your boat is no longer available - please request a refund on our website.\n"); //uzytkownik kupil juz bilet ale jego lodka juz nie plywa
+    //     leave_molo();
+    // }
+
     //jak wroci z wycieczki to opuszcza molo albo idzie kupic bilet jeszcze raz z znizka - zalozenie z projektu
     leave_molo();
 }
@@ -80,7 +112,7 @@ void leave_ticketqueue()
     sem_wait(ticketq_lock);
     *ticketq_cnt -= 1;
     sem_post(ticketq_lock);
-    printf("Passenger %d left the queue.\n",getpid());
+    printf("Passenger %d left the ticket queue.\n",getpid());
 }
 
 void create_passengers()
@@ -115,7 +147,6 @@ void wait_passengers()
         if(wait(0) < 0)
         {
             perror("passenger wait failed");
-            //exit(1) -- czy krytyczne dla dzialania programu
         }
     }
 }
@@ -131,13 +162,16 @@ int purchase_process(int age)
     {
         printf("entered status 0 purchase process");
         decision = 0;
-        return decision;
         close(passenger_cashier[1]);
         close(cashier_passenger[0]);
+        return decision;
+
     }
     if(write(passenger_cashier[1], &age, sizeof(int)) == -1)
     {
         perror("write to cashier failed");
+        close(passenger_cashier[1]);
+        close(cashier_passenger[0]);
         exit(1);
     }
     printf("wrote age to cashier\n");
@@ -146,6 +180,8 @@ int purchase_process(int age)
     if(read(cashier_passenger[0], &decision, sizeof(int)) == -1)
     {
         perror("read from cashier failed");
+        close(passenger_cashier[1]);
+        close(cashier_passenger[0]);
         exit(1);
     }
     printf("read from cashier\n");
@@ -174,3 +210,39 @@ int generate_age()
     
     return age;
 }
+
+// void enter_boat1_queue()
+// {
+
+// }
+
+// int generate_haschild()
+// {
+//     int haschild;
+
+//     if(rand() % 100 < 30) //30% szans na posiadanie dziecka
+//     {
+//         haschild = 1;
+//     }
+//     else
+//     {
+//         haschild = 0;
+//     }
+//     return haschild;
+// }
+
+// int generate_child_age()
+// {
+//     int age;
+
+//     if (rand() % 100 < 70) 
+//     {  
+//         age = rand() % 3 + 1; // 70% szans na wiek w przedziale 1 - 3
+//     }
+//     else
+//     {  
+//         age = rand() % 13 + 4;  // 30% szans na wiek w przedziale 4 - 15
+//     }
+    
+//     return age;
+// }
