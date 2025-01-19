@@ -1,0 +1,73 @@
+//passenger.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <string.h>
+
+
+int main(int argc, char *argv[])
+{
+    setbuf(stdout,NULL);
+    
+    if (argc<4)
+    {
+        printf("TEMPLATE: %s [id] [age] [group]\n",argv[0]);
+        return 1;
+    }
+    int pid = atoi(argv[1]);
+    int age = atoi(argv[2]);
+    int grp = atoi(argv[3]);
+
+    int fd_ci = open("cashier_in_fifo", O_WRONLY);
+    int fd_co = open("cashier_out_fifo", O_RDONLY | O_NONBLOCK);
+    if (fd_ci < 0 || fd_co < 0)
+    {
+        perror("[PASSENGER] error while opening cashier FIFO");
+        return 1;
+    }
+
+    // Wyslanie zapytania do CASHIER
+    char buffer[256];
+
+    snprintf(buffer, sizeof(buffer), "GET %d %d %d\n", pid, age, grp); //zapytanie umieszczamy w buforze
+    write(fd_ci, buffer, strlen(buffer)); //pisanie do FIFO CASHIER'a
+
+    int boat = 0, disc = 0, grpBack = 0;
+    int f_skip = 0;
+    int is_ok = 0;
+
+    int r_attempts = 0; //proby odczytu
+    while (r_attempts < 30)
+    {
+        ssize_t n = read(fd_co, buffer, sizeof(buffer)-1);
+        if (n > 0)
+        {
+            buffer[n] = '\0';
+            if (strncmp(buffer, "OK", 2) == 0)
+            {
+                int obtained_pid;
+                sscanf(buffer, "OK %d BOAT=%d DISC=%d SKIP=%d GROUP=%d", &obtained_pid, &boat, &disc, &f_skip, &grpBack);
+                if (obtained_pid == pid) //jesli odp dotyczy pasazera o odpowiednim pid
+                {
+                    printf("[PASSENGER %d] OK boat=%d disc=%d skip=%d group=%d\n", pid, boat, disc, f_skip, grpBack);
+                    is_ok=1;
+                }
+                break;
+            }
+        }
+        usleep(100000);
+        r_attempts++;
+    }
+    close(fd_ci);
+    close(fd_co);
+
+    if (!is_ok)
+    {
+        printf("[PASSENGER %d] CASHIER didn't respond.\n", pid);
+        return 1;
+    }
+
+    return 0;
+}
