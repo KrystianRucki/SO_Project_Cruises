@@ -1,5 +1,8 @@
 /*
 scheduler.c
+Dostepne komendy:
+p - call police - wysyla sygnal do lodzi
+q - QUIT, konczy symulacje
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,9 +21,12 @@ scheduler.c
 // --- Sciezki do plikow ---
 #define PATH_CASHIER   "./cashier"
 #define PATH_PASSENGER "./passenger"
+#define PATH_POLICE    "./police"
+#define PATH_STERNIK   "./sternik"
 
 // --- FIFO (named) ---
 #define FIFO_CASHIER_IN  "cashier_in_fifo"
+#define FIFO_STERNIK_IN  "sternik_in_fifo"
 
 // --- Maksymalna ilosc pasazerow ---
 #define MAX_PASS 120
@@ -38,7 +44,9 @@ static int max_batch = 6;  //max liczba pasazerow w jednym cyklu generowania - n
 static int total_gen_pass = 0; //liczba wszystkich wynerowanych pasazerow
 
 // --- PIDy procesow ---
+static pid_t pid_sternik = 0;
 static pid_t pid_cashier = 0;
+static pid_t pid_police = 0;
 static pid_t pid_pass[MAX_PASS]; // dla pasazerow
 static int passenger_count = 0; //ilosc pasazerow
 
@@ -121,6 +129,11 @@ void *generator_function(void *arg)
         int option = rand() % 3;
         if (option == 0)
         {
+            if (passenger_count >= MAX_PASS) //przed kazdym generowaniem sprawdzamy, zeby nie przekroczyc MAX_PASS
+            {
+                printf("[GENERATOR] Reached MAX_PASS.\n");
+                break;
+            }
             //Option 0: dziecko z rodzicem
             int grp = origin_pid + used_count;
 
@@ -139,6 +152,11 @@ void *generator_function(void *arg)
         }
         else if (used_count > 0 && option == 1)
         {
+            if (passenger_count >= MAX_PASS)
+            {
+                printf("[GENERATOR] Reached MAX_PASS.\n");
+                break;
+            }
             //Option 1: powrocil stary PID (cashier - skip=1)
             int id_x = rand() % used_count; //losowy passenger z juz "uzytych"
             int old_pid = used_pids[id_x];
@@ -155,6 +173,12 @@ void *generator_function(void *arg)
 
             for (int i = 0; i < batch_size; i++)
             {
+                if (passenger_count >= MAX_PASS)
+                {
+                    printf("[GENERATOR] Reached MAX_PASS.\n");
+                    break;
+                }
+
                 int age = rand() % 80 + 1; //wiek 1 - 80
 
                 //Jesli wylosuje się dziecko (<15), to generujemy pare dziecko-rodzic (zeby dziecko nie zostalo bez opiekuna)
@@ -186,7 +210,7 @@ void *generator_function(void *arg)
 
                 if (used_count >= 6000) 
                 {
-                    printf("[GENERATOR] Reached 6000 pid - STOP.\n");
+                    printf("[GENERATOR] Reached 6000 pid - STOP.\n"); //zabezpiecznie dla batcha
                     break;
                 }
             }
@@ -208,12 +232,12 @@ void *generator_function(void *arg)
 
 
 // --- Funkcja dla watku (timeout_killer_thread) ---
-void *time_killer_func(void *arg)
+void *time_killer_function(void *arg)
 {
     sleep(TIMEOUT);
     if (!terminate_flag)
     {
-        printf("[SCHEDULER-TIME] Time out = %d => end.\n", TIMEOUT);
+        printf("[SCHEDULER-TIME] Time out = %d => END\n", TIMEOUT);
         end_sim();
     }
     return NULL;
@@ -222,16 +246,18 @@ void *time_killer_func(void *arg)
 // --- Usuwanie plikow z systemu plikow ---
 void remove_fifo()
 {
+    unlink(FIFO_STERNIK_IN);
     unlink(FIFO_CASHIER_IN);
 }
 
 // --- Konczenie symulacji---
 /*Kolejnosc: 
-1.sprawdzenie co juz przestalo dzialac
-2.EXIT do kasjera/sternika 
-3.kill 
-4.czekanie 
-5.sprzatanie
+1.Sprawdzenie, czy dany proces juz zakonczyl sie samodzielnie
+2.QUIT do kasjera/sternika - pozwolenie procesom na zakonczenie dzialania w sposob kontrolowany
+3.SIGTERM - lagodnie informujemy o koniecznosci zakonczenia dzialania
+4.SIGKILL - zakonczenie dzialania procesow, ktore mogly nie odpowiedziec na wczesniejsze sygnaly
+5.Czekanie - Ostateczne oczekiwanie na zakonczenie procesow
+6.Sprzatanie
 */
 void end_sim()
 {
@@ -239,10 +265,16 @@ void end_sim()
     terminate_flag = 1;
     gen_running_flag = 0;  
 
-    printf("[SCHEDULER] end_sim() check: EXIT, kill -TERM, kill -9 (...)\n");
+    printf("[SCHEDULER] end_sim(): CHECK, QUIT, SIGTERM, SIGKILL (...)\n");
     printf("[SCHEDULER] Total passengers generated: %d.\n", total_gen_pass);
 
     //sprawdzamy, ktore przestaly dzialac
+    if (pid_police > 0)
+    {
+        pid_t w = waitpid(pid_police, NULL, WNOHANG); // WNOHANG - nie wstrzymuje procesu
+        if (w == pid_police){pid_police = 0;}
+    }
+
     for(int i=0; i < passenger_count; i++)
     {
         if(pid_pass[i] > 0)
@@ -251,34 +283,61 @@ void end_sim()
             if(w == pid_pass[i]){pid_pass[i] = 0;}
         }
     }
+
     if(pid_cashier > 0)
     {
         pid_t w = waitpid(pid_cashier, NULL, WNOHANG);
         if(w == pid_cashier){ pid_cashier = 0;}
     }
 
-    //EXIT
+    if(pid_sternik > 0)
+    {
+        pid_t w = waitpid(pid_sternik, NULL, WNOHANG);
+        if(w == pid_sternik){pid_sternik = 0;}
+    }
+
+    //QUIT
     if(pid_cashier > 0)
     {
         int fk = open(FIFO_CASHIER_IN, O_WRONLY);
         if(fk >= 0)
         {
-            write(fk, "EXIT\n", 5);
+            write(fk, "QUIT\n", 5);
             close(fk);
         }
-        printf("[SCHEDULER] (EXIT) cashier pid = %d\n", pid_cashier);
+        printf("[SCHEDULER] QUIT => pid cashier = %d\n", pid_cashier);
     
     }
+
+    if(pid_sternik > 0)
+    {
+        int fst= open(FIFO_STERNIK_IN, O_WRONLY | O_NONBLOCK);
+        if(fst >= 0)
+        {
+            write(fst,"QUIT\n", 5);
+            close(fst);
+        }
+        printf("[SCHEDULER] QUIT => pid sternik = %d\n", pid_sternik);
+    }
+
     //SIGTERM
+    if(pid_police > 0){kill(pid_police, SIGTERM);}
+
     for(int i=0; i < passenger_count; i++)
     {
         if(pid_pass[i] > 0){kill(pid_pass[i], SIGTERM);}
     }
     if(pid_cashier > 0){kill(pid_cashier, SIGTERM);}
+    if(pid_sternik > 0){kill(pid_sternik, SIGTERM);}
 
     usleep(500000);
 
     //SIGKILL
+    if(pid_police > 0)
+    {
+        if(0 == waitpid(pid_police, NULL, WNOHANG)){kill(pid_police, SIGKILL);}
+    }
+
     for(int i=0;i<passenger_count;i++)
     {
         if(pid_pass[i] > 0)
@@ -292,7 +351,18 @@ void end_sim()
         if(0 == waitpid(pid_cashier,NULL,WNOHANG)){kill(pid_cashier, SIGKILL);}
     }
 
+    if(pid_sternik > 0)
+    {
+        if(0 == waitpid(pid_sternik,NULL,WNOHANG)){kill(pid_sternik, SIGKILL);}
+    }
+
     //Czekanie
+    if(pid_police > 0)
+    {
+        waitpid(pid_police, NULL, 0);
+        pid_police = 0;
+    }
+
     for(int i=0; i < passenger_count; i++)
     {
         if(pid_pass[i] > 0)
@@ -308,12 +378,38 @@ void end_sim()
         pid_cashier = 0;
     }
 
+    if(pid_sternik > 0)
+    {
+        waitpid(pid_sternik, NULL, 0);
+        pid_sternik = 0;
+    }
+
     remove_fifo();
-    printf("[SCHEDULER] end_sim => completed.\n");
+    printf("[SCHEDULER] end_sim => FINISHED.\n");
+}
+
+// --- Uruchomienie sternika ---
+static void start_sternik()
+{
+    if(pid_sternik > 0)
+    {
+        printf("[SCHEDULER] Sternik already running.\n");
+        return;
+    }
+    char arg[32];
+    sprintf(arg, "%d", TIMEOUT);
+    char *arguments[] = {(char*)PATH_STERNIK, arg, NULL};
+
+    pid_t pc = do_child_job(PATH_STERNIK, arguments);
+    if(pc > 0)
+    {
+        pid_sternik = pc;
+        printf("[SCHEDULER] Sternik pid = %d.\n", pc);
+    }
 }
 
 // --- Uruchomienie cashier'a ---
-static void start_cashier(void)
+static void start_cashier()
 {
     if(pid_cashier > 0)
     {
@@ -330,8 +426,35 @@ static void start_cashier(void)
     }
 }
 
+// --- Uruchomienia police ---
+static void start_police()
+{
+    if(pid_sternik <= 0)
+    {
+        printf("[SCHEDULER] No sternik => police no signals.\n");
+        return;
+    }
+
+    if(pid_police > 0)
+    {
+        printf("[SCHEDULER] Police already running.\n");
+        return;
+    }
+
+    char arg[32];
+    sprintf(arg,"%d", pid_sternik);
+    char *arguments[] = {(char*)PATH_POLICE, arg, NULL};
+
+    pid_t pc = do_child_job(PATH_POLICE, arguments);
+    if(pc > 0)
+    {
+        pid_police = pc;
+        printf("[SCHEDULER] Police_pid = %d, sternik = %d.\n", pc, pid_sternik);
+    }
+}
+
 // --- MAIN ---
-int main(void)
+int main()
 {
     setbuf(stdout, NULL); //wylaczanie buforowania dla standardowego wyjscia (stdout)
 
@@ -360,20 +483,37 @@ int main(void)
     while(getchar() != '\n'); // wczytanie entera jesli sie ewentualnie pojawi
 
     remove_fifo();
-    mkfifo(FIFO_CASHIER_IN, 0666);
+    mkfifo(FIFO_STERNIK_IN, 0666);
 
+    start_sternik();
+    usleep(700000);
     start_cashier();
     usleep(700000);
 
     //tworzenie watku: generatora i timeout_killer_thread
     pthread_create(&generator_thread, NULL, generator_function, NULL);
-    pthread_create(&timeout_killer_thread, NULL, time_killer_func, NULL);
+    pthread_create(&timeout_killer_thread, NULL, time_killer_function, NULL);
 
-    printf("[SCHEDULER] Command: q => end.\n");
+    printf("[SCHEDULER] Commands: p => call police | q => end simulation (quit)\n");
 
     char command;
     while(!terminate_flag)
     {
+        //sprawdzamy czy sternik sie skonczyl
+        if(pid_sternik > 0)
+        {
+            int status;
+            pid_t w = waitpid(pid_sternik, &status, WNOHANG);
+            if(w == pid_sternik)
+            {
+                printf("[SCHEDULER] sternik ended => end.\n");
+                end_sim();
+                break;
+            }
+        }
+
+        fflush(stdout);      
+
         fd_set read_fds; // Zmienna do przechowywania deskryptorow do odczytu
         FD_ZERO(&read_fds); // Inicjalizacja zestawu deskryptorow
         FD_SET(STDIN_FILENO, &read_fds); // Dodanie deskryptora standardowego wejscia do zestawu
@@ -390,7 +530,7 @@ int main(void)
             break;
         }
 
-        if(ret==0){/*uzytkownik nic nie wpisal*/}
+        if(ret == 0 ){/*uzytkownik nic nie wpisal*/}
         else
         {
             if(FD_ISSET(STDIN_FILENO, &read_fds)) // jest cos do odczytania na stdin
@@ -399,6 +539,7 @@ int main(void)
                 if(command == EOF){break;}
 
                 if(command == 'q'){end_sim();break;}
+                else if(command == 'p'){start_police();}
                 else{printf("[SCHEDULER] Unknown command.\n");}
             }
         }

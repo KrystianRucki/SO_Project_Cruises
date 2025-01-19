@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <time.h>
 
 #define MAX_PIDS 6000
 
@@ -64,18 +65,14 @@ int main(void)
             }
             if (ret_elements < 3){group=0;}
 
-            printf("[CASHIER] Passenger %d age=%d group=%d\n", pid, age, group);
+            printf("[CASHIER] Passenger %d age = %d group = %d\n", pid, age, group);
 
             //Wybor lodzi
-            int boat=1;//mozliwa zmiana na to ze zwykli pasazerowie moga na 1 lub 2 - sprawdzenie dopiero po sprawdzeniu obecnych warunkow
-            
-            //group!=0: boat = 2
+            srand(time(NULL));
+            int boat = rand() % 2 + 1; //boat1 lub boat2 domyslnie, pozniej case na boat2
+
             if (group > 0){boat=2;}
-            else
-            {
-                //zwykly "case", sprawdzamy dziecko < 15 => boat=2, wiek > 70 => boat = 2, inne przypadki boat = 1
-                if (age<15 || age>70){boat=2;}
-            }
+            else if(age<15 || age>70){boat=2;}//zwykly "case", sprawdzamy dziecko < 15 => boat=2, wiek > 70 => boat = 2,
 
             int discount = 0, f_skip = 0; //znizka, flaga pomijania (skip)
             if (pid >= 0 && pid < MAX_PIDS)
@@ -99,9 +96,9 @@ int main(void)
             // dprintf() pozwala na wskazanie konkretnego fd, ktory bedzie odbieral dane
 
         }
-        else if(strncmp(buffer, "EXIT", 4) == 0)
+        else if(strncmp(buffer, "QUIT", 4) == 0)
         {
-            printf("[CASHIER] EXIT\n");
+            printf("[CASHIER] QUIT\n");
             break;
         }
         else{printf("[CASHIER] UNKNOWN: %s\n", buffer);}

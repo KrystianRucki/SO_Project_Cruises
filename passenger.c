@@ -11,9 +11,9 @@ int main(int argc, char *argv[])
 {
     setbuf(stdout,NULL);
     
-    if (argc<4)
+    if (argc < 4)
     {
-        printf("TEMPLATE: %s [id] [age] [group]\n",argv[0]);
+        fprintf(stderr, "USED: %s [pid] [age] [group]\n",argv[0]);
         return 1;
     }
     int pid = atoi(argv[1]);
@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
     int is_ok = 0;
 
     int r_attempts = 0; //proby odczytu
-    while (r_attempts < 30)
+    while (r_attempts < 70)
     {
         ssize_t n = read(fd_co, buffer, sizeof(buffer)-1);
         if (n > 0)
@@ -51,7 +51,7 @@ int main(int argc, char *argv[])
                 sscanf(buffer, "OK %d BOAT=%d DISC=%d SKIP=%d GROUP=%d", &obtained_pid, &boat, &disc, &f_skip, &grpBack);
                 if (obtained_pid == pid) //jesli odp dotyczy pasazera o odpowiednim pid
                 {
-                    printf("[PASSENGER %d] OK boat=%d disc=%d skip=%d group=%d\n", pid, boat, disc, f_skip, grpBack);
+                    printf("[PASSENGER %d] OK BOAT=%d DISC=%d SKIP=%d GROUP=%d\n", pid, boat, disc, f_skip, grpBack);
                     is_ok=1;
                 }
                 break;
@@ -68,6 +68,27 @@ int main(int argc, char *argv[])
         printf("[PASSENGER %d] CASHIER didn't respond.\n", pid);
         return 1;
     }
+
+    //Czesc dotyczaca sternika
+    int fd_sin = open("sternik_in_fifo", O_WRONLY);
+
+    if (fd_sin < 0)
+    {
+        fprintf(stderr, "[PASSENGER %d] open sternik_in_fifo error\n", pid);
+        return 1;
+    }
+
+    if (f_skip == 1)
+    {
+        snprintf(buffer, sizeof(buffer), "SKIP_QUEUE %d %d %d %d\n", pid, boat, disc, grp); //flaga skip = 1, kolejka omijajaca
+    }
+    else
+    {
+        snprintf(buffer, sizeof(buffer),"QUEUE %d %d %d %d\n", pid, boat, disc, grp); //zwykla kolejka
+    }
+
+    write(fd_sin, buffer, strlen(buffer)); // pisanie do FIFO sternika
+    close(fd_sin);
 
     return 0;
 }
