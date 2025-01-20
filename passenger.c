@@ -21,7 +21,7 @@ int main(int argc, char *argv[])
     int grp = atoi(argv[3]);
 
     int fd_ci = open("cashier_in_fifo", O_WRONLY);
-    int fd_co = open("cashier_out_fifo", O_RDONLY /*| O_NONBLOCK*/);
+    int fd_co = open("cashier_out_fifo", O_RDONLY);
     if (fd_ci < 0 || fd_co < 0)
     {
         perror("[PASSENGER] error while opening cashier FIFO");
@@ -57,7 +57,6 @@ int main(int argc, char *argv[])
                 break;
             }
         }
-        // usleep(100000);
         r_attempts++;
     }
     close(fd_ci);

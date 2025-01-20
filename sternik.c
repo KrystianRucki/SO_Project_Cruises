@@ -25,8 +25,8 @@ static int group_targetval[GROUP_MAX] = {0}; //target wielkosci grupy
 static int group_count[GROUP_MAX] = {0}; //sledzenie ile osob z konkretnej grupy juz zaladowalismy
 
 
-#define ONBOARD_TIMEOUT 3 //czas zaladunku
-#define K 2 //limit pomostu
+#define ONBOARD_TIMEOUT 6 //czas zaladunku
+#define K 3 //limit pomostu
 
 //Dlugosc kolejki
 #define QUEUE_SIZE 30
@@ -200,7 +200,7 @@ void *boat1_thread(void *arg)
         if (is_Empty(&boat1_skip_queue) && is_Empty(&boat1_queue))
         {
             pthread_mutex_unlock(&m);
-            usleep(50000);
+            // usleep(50000);
             continue;
         }
 
@@ -231,7 +231,7 @@ void *boat1_thread(void *arg)
             {
                 //obie kolejki sa puste - odblokowujemy mutex na chwile
                 pthread_mutex_unlock(&m);
-                usleep(50000);
+                // usleep(50000);
                 pthread_mutex_lock(&m);
 
                 //Sprawdzamy czy lodz jest nadal aktywna
@@ -266,7 +266,7 @@ void *boat1_thread(void *arg)
                 {
                     //pomost jest pelny
                     pthread_mutex_unlock(&m);
-                    usleep(50000);
+                    // usleep(50000);
                     pthread_mutex_lock(&m);
                 }
             }
@@ -274,7 +274,7 @@ void *boat1_thread(void *arg)
             {
                 //stan OUTGOING, czekamy az sie zwolni
                 pthread_mutex_unlock(&m);
-                usleep(50000);
+                // usleep(50000);
                 pthread_mutex_lock(&m);
             }
 
@@ -296,7 +296,7 @@ void *boat1_thread(void *arg)
         if (onboarded == 0)
         {
             pthread_mutex_unlock(&m);
-            usleep(50000);
+            // usleep(50000);
             continue;
         }
         
@@ -346,7 +346,7 @@ void *boat1_thread(void *arg)
         }
         pthread_mutex_unlock(&m);
 
-        usleep(50000);
+        // usleep(50000);
     }
 
     insta_print("[BOAT1] THREAD END.\n");
@@ -372,7 +372,7 @@ void *boat2_thread(void *arg)
         if(is_Empty(&boat2_skip_queue) && is_Empty(&boat2_queue))
         {
             pthread_mutex_unlock(&m);
-            usleep(50000);
+            // usleep(50000);
             continue;
         }
         
@@ -402,7 +402,7 @@ void *boat2_thread(void *arg)
             {
                 //obie kolejki sa puste - odblokowujemy mutex na chwile
                 pthread_mutex_unlock(&m);
-                usleep(50000);
+                // usleep(50000);
                 pthread_mutex_lock(&m);
 
                 //Sprawdzamy czy lodz jest nadal aktywna
@@ -444,7 +444,7 @@ void *boat2_thread(void *arg)
                 {
                     //pomost jest pelny
                     pthread_mutex_unlock(&m);
-                    usleep(50000);
+                    // usleep(50000);
                     pthread_mutex_lock(&m);
                 }
             }
@@ -452,7 +452,7 @@ void *boat2_thread(void *arg)
             {
                 //stan OUTGOING, czekamy az sie zwolni
                 pthread_mutex_unlock(&m);
-                usleep(50000);
+                // usleep(50000);
                 pthread_mutex_lock(&m);
             }
             
@@ -474,7 +474,7 @@ void *boat2_thread(void *arg)
         if(onboarded == 0)
         {
             pthread_mutex_unlock(&m);
-            usleep(50000);
+            // usleep(50000);
             continue;
         }
 
@@ -519,7 +519,7 @@ void *boat2_thread(void *arg)
             }
             end_outgoing();
             pthread_mutex_unlock(&m);
-            usleep(500000); //dajemy czas na zaladunek brakujacej osoby
+            // usleep(500000); //dajemy czas na zaladunek brakujacej osoby
 
             continue;
         }
@@ -565,7 +565,7 @@ void *boat2_thread(void *arg)
         }
         pthread_mutex_unlock(&m);
         
-        usleep(50000);
+        // usleep(50000);
     }
 
     insta_print("[BOAT2] THREAD END.\n");
@@ -744,7 +744,7 @@ int main(int argc, char*argv[])
         }
         pthread_mutex_unlock(&m);
 
-        usleep(50000);
+        // usleep(50000);
     }
 
     pthread_mutex_lock(&m);

@@ -223,7 +223,7 @@ void *generator_function(void *arg)
             break;
         }
 
-        //Pause 1s-2s
+        // przychodza losowo co pewien czas 1s-2s
         int rnd_sleep = rand()%2 + 1;
         for (int i=0; i < rnd_sleep * 10 && !terminate_flag; i++){usleep(100000);}
     }
@@ -486,11 +486,9 @@ int main()
 
     remove_fifo();
     mkfifo(FIFO_STERNIK_IN, 0666);
-
+    mkfifo(FIFO_CASHIER_IN, 0666);
     start_sternik();
-    usleep(500000);
     start_cashier();
-    usleep(500000);
 
     //tworzenie watku: generatora i timeout_killer_thread
     pthread_create(&generator_thread, NULL, generator_function, NULL);
