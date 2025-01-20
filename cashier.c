@@ -47,7 +47,7 @@ int main(void)
             perror("[CASHIER] read");
             break;
         }
-        if (n==0)
+        if (n == 0)
         {
             usleep(100000);
             continue;
@@ -56,23 +56,15 @@ int main(void)
 
         if (strncmp(buffer,"GET",3)==0)
         {
-            int pid, age, group = 0;
-            int ret_elements = sscanf(buffer, "GET %d %d %d", &pid, &age, &group); //rozpakowanie danych w buforze
+            int pid, age;
+            int ret_elements = sscanf(buffer, "GET %d %d", &pid, &age); //rozpakowanie danych w buforze
             if (ret_elements < 2)
             {
                 printf("[CASHIER] Incorrect: %s\n", buffer);
                 continue;
             }
-            if (ret_elements < 3){group=0;}
 
-            printf("[CASHIER] Passenger %d age = %d group = %d\n", pid, age, group);
-
-            //Wybor lodzi
-            srand(time(NULL));
-            int boat = rand() % 2 + 1; //boat1 lub boat2 domyslnie, pozniej case na boat2
-
-            if (group > 0){boat=2;}
-            else if(age<15 || age>70){boat=2;}//zwykly "case", sprawdzamy dziecko < 15 => boat=2, wiek > 70 => boat = 2,
+            printf("[CASHIER] Passenger %d age = %d\n", pid, age);
 
             int discount = 0, f_skip = 0; //znizka, flaga pomijania (skip)
             if (pid >= 0 && pid < MAX_PIDS)
@@ -92,7 +84,7 @@ int main(void)
             }
 
             //Odpowiedz CASHIER => PASSENGER
-            dprintf(fd_out, "OK %d BOAT=%d DISC=%d SKIP=%d GROUP=%d\n", pid, boat, discount, f_skip, group);
+            dprintf(fd_out, "OK %d DISC=%d SKIP=%d\n", pid, discount, f_skip);
             // dprintf() pozwala na wskazanie konkretnego fd, ktory bedzie odbieral dane
 
         }

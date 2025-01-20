@@ -31,10 +31,10 @@ int main(int argc, char *argv[])
     // Wyslanie zapytania do CASHIER
     char buffer[256];
 
-    snprintf(buffer, sizeof(buffer), "GET %d %d %d\n", pid, age, grp); //zapytanie umieszczamy w buforze
+    snprintf(buffer, sizeof(buffer), "GET %d %d\n", pid, age); //zapytanie umieszczamy w buforze
     write(fd_ci, buffer, strlen(buffer)); //pisanie do FIFO CASHIER'a
 
-    int boat = 0, disc = 0, grpBack = 0;
+    int disc = 0;
     int f_skip = 0;
     int is_ok = 0;
 
@@ -48,10 +48,10 @@ int main(int argc, char *argv[])
             if (strncmp(buffer, "OK", 2) == 0)
             {
                 int obtained_pid;
-                sscanf(buffer, "OK %d BOAT=%d DISC=%d SKIP=%d GROUP=%d", &obtained_pid, &boat, &disc, &f_skip, &grpBack);
+                sscanf(buffer, "OK %d DISC=%d SKIP=%d", &obtained_pid, &disc, &f_skip);
                 if (obtained_pid == pid) //jesli odp dotyczy pasazera o odpowiednim pid
                 {
-                    printf("[PASSENGER %d] OK BOAT=%d DISC=%d SKIP=%d GROUP=%d\n", pid, boat, disc, f_skip, grpBack);
+                    printf("[PASSENGER %d] OK DISC=%d SKIP=%d\n", pid, disc, f_skip);
                     is_ok=1;
                 }
                 break;
@@ -80,11 +80,11 @@ int main(int argc, char *argv[])
 
     if (f_skip == 1)
     {
-        snprintf(buffer, sizeof(buffer), "SKIP_QUEUE %d %d %d %d\n", pid, boat, disc, grp); //flaga skip = 1, kolejka omijajaca
+        snprintf(buffer, sizeof(buffer), "SKIP_QUEUE %d %d %d %d\n", pid, age, disc, grp); //flaga skip = 1, kolejka omijajaca
     }
     else
     {
-        snprintf(buffer, sizeof(buffer),"QUEUE %d %d %d %d\n", pid, boat, disc, grp); //zwykla kolejka
+        snprintf(buffer, sizeof(buffer),"QUEUE %d %d %d %d\n", pid, age, disc, grp); //zwykla kolejka
     }
 
     write(fd_sin, buffer, strlen(buffer)); // pisanie do FIFO sternika

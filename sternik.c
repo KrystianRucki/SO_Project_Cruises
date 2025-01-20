@@ -631,10 +631,18 @@ int main(int argc, char*argv[])
             buffer[n] = '\0';
             if(strncmp(buffer, "SKIP_QUEUE", 10) == 0)
             {
-                int pid = 0, boat_nr = 0, discount = 0, grp = 0;
-                sscanf(buffer, "SKIP_QUEUE %d %d %d %d", &pid, &boat_nr, &discount, &grp);
+                int pid = 0, age = 0, discount = 0, grp = 0;
+                sscanf(buffer, "SKIP_QUEUE %d %d %d %d", &pid, &age, &discount, &grp);
                 
                 pthread_mutex_lock(&m);
+
+                //Wybor lodzi
+                srand(time(NULL));
+                int boat_nr = rand() % 2 + 1; //boat1 lub boat2 domyslnie, pozniej case na boat2
+
+                if (grp > 0){boat_nr = 2;}
+                else if(age < 15 || age > 70){boat_nr = 2;}//zwykly "case", sprawdzamy dziecko < 15 => boat=2, wiek > 70 => boat = 2,
+                
                 PassengerData pass_i = {pid, discount, grp};
                 if(boat_nr == 1 && boat1_active)
                 {
@@ -669,8 +677,8 @@ int main(int argc, char*argv[])
             }
             else if(strncmp(buffer,"QUEUE", 5) == 0) //normalna kolejka
             {
-                int pid = 0, boat_nr = 0, discount = 0, grp = 0;
-                int ret_elements = sscanf(buffer, "QUEUE %d %d %d %d", &pid, &boat_nr, &discount, &grp);
+                int pid = 0, age = 0, discount = 0, grp = 0;
+                int ret_elements = sscanf(buffer, "QUEUE %d %d %d %d", &pid, &age, &discount, &grp);
                 if(ret_elements < 4)
                 {
                     printf("[STERNIK] Incorrect queue/arguments: %s\n",buffer);
@@ -680,6 +688,14 @@ int main(int argc, char*argv[])
                 PassengerData pass_i = {pid, discount, grp};
 
                 pthread_mutex_lock(&m);
+
+                //Wybor lodzi
+                srand(time(NULL));
+                int boat_nr = rand() % 2 + 1; //boat1 lub boat2 domyslnie, pozniej case na boat2
+
+                if (grp > 0){boat_nr = 2;}
+                else if(age < 15 || age > 70){boat_nr = 2;}//zwykly "case", sprawdzamy dziecko < 15 => boat=2, wiek > 70 => boat = 2,
+
                 if(boat_nr == 1 && boat1_active)
                 {
                     if(!is_Full(&boat1_queue))
