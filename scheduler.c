@@ -457,7 +457,9 @@ static void start_police()
 int main()
 {
     setbuf(stdout, NULL); //wylaczanie buforowania dla standardowego wyjscia (stdout)
-
+    system("clear");
+    printf("                 __/\\__\n               /~~~~~~/\n           ~~~~~~~~~~~\n        ~~~~~~~~~~~~~\t\t\t  CRUISES\n      ~~~~~~~~~~~~~~~~\n       ~~~~~~~~~~~~~~~~~\n              | _ |\n              | _ |\n        |=================|\n\n");
+    
     //Pytanie usera o czas symulacji
     int user_timeout = 0;
     while(1)
@@ -486,9 +488,9 @@ int main()
     mkfifo(FIFO_STERNIK_IN, 0666);
 
     start_sternik();
-    usleep(700000);
+    usleep(500000);
     start_cashier();
-    usleep(700000);
+    usleep(500000);
 
     //tworzenie watku: generatora i timeout_killer_thread
     pthread_create(&generator_thread, NULL, generator_function, NULL);

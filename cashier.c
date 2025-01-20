@@ -18,7 +18,7 @@ int main(void)
     mkfifo("cashier_in_fifo", 0666);
     mkfifo("cashier_out_fifo", 0666);
 
-    int fd_in = open("cashier_in_fifo", O_RDONLY | O_NONBLOCK);
+    int fd_in = open("cashier_in_fifo", O_RDONLY /*| O_NONBLOCK*/);
     int fd_out = open("cashier_out_fifo", O_WRONLY);
 
     if (fd_in < 0 || fd_out < 0)
@@ -41,7 +41,7 @@ int main(void)
         {
             if (errno == EAGAIN || errno == EINTR)// Brak danych do odczytu (potok jest pusty, proces czeka na dane) || Operacja odczytu zostala przerwana przez signal
             {
-                usleep(100000);
+                //usleep(100000);
                 continue;
             }
             perror("[CASHIER] read");
@@ -49,7 +49,7 @@ int main(void)
         }
         if (n == 0)
         {
-            usleep(100000);
+           // usleep(100000);
             continue;
         }
         buffer[n]='\0'; //wstawiamy null terminator na koniec
