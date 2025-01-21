@@ -757,7 +757,7 @@ int main(int argc, char*argv[])
     pthread_join(thread2, NULL);
 
     close(fd_sin);
-    insta_print("[STERNIK] END.\n");
+    insta_print("[STERNIK] Service ended.\n");
 
     return 0;
 }

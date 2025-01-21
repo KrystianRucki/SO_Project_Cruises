@@ -1,93 +1,130 @@
-//passenger.c
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <string.h>
+#include <stdio.h>      // Standardowe funkcje wejścia/wyjścia
+#include <stdlib.h>     // Funkcje takie jak atoi() i exit()
+#include <fcntl.h>      // Operacje na deskryptorach plików
+#include <sys/stat.h>   // Funkcje i makra do obsługi atrybutów plików
+#include <unistd.h>     // Funkcje POSIX, takie jak write(), close()
+#include <sys/socket.h> // Operacje na gniazdach
+#include <sys/un.h>     // Struktury i funkcje dla gniazd domeny Unix
+#include <errno.h>      // Definicja zmiennej errno
+#include <string.h>     // Funkcje do manipulacji łańcuchami, np. strncpy()
 
+#define SOCKET_PATH "/tmp/cashier_socket" // Ścieżka do gniazda domeny Unix dla komunikacji z kasjerem
+#define MAX_RETRIES 5  // Maksymalna liczba prób ponownego połączenia
+#define RETRY_DELAY 1  // Opóźnienie między próbami połączenia (w sekundach)
 
 int main(int argc, char *argv[])
 {
-    setbuf(stdout,NULL);
+    setbuf(stdout, NULL); // Wyłącza buforowanie dla stdout, dzięki czemu wszystkie komunikaty są od razu wyświetlane
 
+    // Sprawdzanie liczby argumentów programu
     if (argc < 4)
     {
-        fprintf(stderr, "USED: %s [pid] [age] [group]\n",argv[0]);
-        return 1;
-    }
-    int pid = atoi(argv[1]);
-    int age = atoi(argv[2]);
-    int grp = atoi(argv[3]);
-
-    int fd_ci = open("cashier_in_fifo", O_WRONLY);
-    int fd_co = open("cashier_out_fifo", O_RDONLY);
-    if (fd_ci < 0 || fd_co < 0)
-    {
-        perror("[PASSENGER] error while opening cashier FIFO");
-        return 1;
+        fprintf(stderr, "Usage: %s [pid] [age] [group]\n", argv[0]); // Informacja o poprawnym użyciu programu
+        return 1; // Zakończenie programu z błędem
     }
 
-    // Wyslanie zapytania do CASHIER
-    char buffer[256];
+    // Parsowanie argumentów wejściowych
+    int pid = atoi(argv[1]);  // PID pasażera
+    int age = atoi(argv[2]);  // Wiek pasażera
+    int group = atoi(argv[3]); // Grupa pasażera
 
-    snprintf(buffer, sizeof(buffer), "GET %d %d\n", pid, age); //zapytanie umieszczamy w buforze
-    write(fd_ci, buffer, strlen(buffer)); //pisanie do FIFO CASHIER'a
-
-    int disc = 0;
-    int f_skip = 0;
-    int is_ok = 0;
-
-    int r_attempts = 0; //proby odczytu
-    while (r_attempts < 70)
+    // Tworzenie gniazda domeny Unix
+    int sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (sock_fd < 0)
     {
-        ssize_t n = read(fd_co, buffer, sizeof(buffer)-1);
-        if (n > 0)
+        perror("[PASSENGER] Error creating socket"); // Wyświetlenie błędu, jeśli tworzenie gniazda się nie powiedzie
+        return 1;
+    }
+
+    // Konfiguracja adresu gniazda
+    struct sockaddr_un server_addr;
+    memset(&server_addr, 0, sizeof(server_addr)); // Zerowanie struktury adresu
+    server_addr.sun_family = AF_UNIX;            // Ustawienie typu domeny Unix
+    strncpy(server_addr.sun_path, SOCKET_PATH, sizeof(server_addr.sun_path) - 1); // Ustawienie ścieżki do gniazda
+
+    // Mechanizm ponownych prób połączenia
+    int retries = 0;
+    while (connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        if (errno == ENOENT && retries < MAX_RETRIES)
         {
-            buffer[n] = '\0';
-            if (strncmp(buffer, "OK", 2) == 0)
-            {
-                int obtained_pid;
-                sscanf(buffer, "OK %d DISC=%d SKIP=%d", &obtained_pid, &disc, &f_skip);
-                if (obtained_pid == pid) //jesli odp dotyczy pasazera o odpowiednim pid
-                {
-                    printf("[PASSENGER %d] OK DISC=%d SKIP=%d\n", pid, disc, f_skip);
-                    is_ok=1;
-                }
-                break;
-            }
+            // Jeśli gniazdo jeszcze nie istnieje (ENOENT), próba połączenia zostanie ponowiona
+            fprintf(stderr, "[PASSENGER] Error connecting to cashier socket: %s. Retrying...\n", strerror(errno));
+            retries++;
+            sleep(RETRY_DELAY); // Oczekiwanie przed kolejną próbą
         }
-        r_attempts++;
+        else
+        {
+            // Jeśli błąd nie jest związany z brakiem gniazda lub przekroczono limit prób
+            perror("[PASSENGER] Error connecting to cashier socket");
+            close(sock_fd); // Zamknięcie deskryptora gniazda
+            return 1;
+        }
     }
-    close(fd_ci);
-    close(fd_co);
 
-    if (!is_ok)
+    // Przygotowanie i wysłanie żądania do kasjera
+    char request_buffer[256];
+    snprintf(request_buffer, sizeof(request_buffer), "GET %d %d\n", pid, age); // Tworzenie żądania GET z PID i wiekiem
+    if (write(sock_fd, request_buffer, strlen(request_buffer)) == -1)
     {
-        printf("[PASSENGER %d] CASHIER didn't respond.\n", pid);
+        perror("[PASSENGER] Error writing to cashier socket"); // Obsługa błędu zapisu do gniazda
+        close(sock_fd);
         return 1;
     }
 
-    //Czesc dotyczaca sternika
-    int fd_sin = open("sternik_in_fifo", O_WRONLY);
+    // Odczyt odpowiedzi z kasjera
+    char response_buffer[256];
+    int discount = 0; // Zmienna na zniżkę
+    int skip_queue = 0; // Zmienna wskazująca, czy pasażer ma ominąć kolejkę
 
-    if (fd_sin < 0)
+    ssize_t bytes_read = read(sock_fd, response_buffer, sizeof(response_buffer) - 1);
+    if (bytes_read > 0)
     {
-        fprintf(stderr, "[PASSENGER %d] open sternik_in_fifo error\n", pid);
-        return 1;
-    }
-
-    if (f_skip == 1)
-    {
-        snprintf(buffer, sizeof(buffer), "SKIP_QUEUE %d %d %d %d\n", pid, age, disc, grp); //flaga skip = 1, kolejka omijajaca
+        // Jeśli odczytano dane z gniazda
+        response_buffer[bytes_read] = '\0'; // Dodanie znaku końca łańcucha
+        if (strncmp(response_buffer, "OK", 2) == 0)
+        {
+            // Parsowanie odpowiedzi w przypadku sukcesu
+            sscanf(response_buffer, "OK %*d DISC=%d SKIP=%d", &discount, &skip_queue);
+            printf("[PASSENGER %d] OK DISC=%d SKIP=%d\n", pid, discount, skip_queue);
+        }
+        else
+        {
+            // Obsługa nieznanej odpowiedzi
+            printf("[PASSENGER %d] Unknown response: %s", pid, response_buffer);
+        }
     }
     else
     {
-        snprintf(buffer, sizeof(buffer),"QUEUE %d %d %d %d\n", pid, age, disc, grp); //zwykla kolejka
+        // Obsługa błędu odczytu
+        perror("[PASSENGER] Error reading from cashier socket");
     }
 
-    write(fd_sin, buffer, strlen(buffer)); // pisanie do FIFO sternika
-    close(fd_sin);
+    close(sock_fd); // Zamknięcie gniazda
 
-    return 0;
+    // --- CZESC STERNIKA ---
+
+    // Otwieranie FIFO dla sternika i wysyłanie odpowiedniego żądania
+    int sternik_fifo = open("sternik_in_fifo", O_WRONLY);
+    if (sternik_fifo < 0)
+    {
+        // Obsługa błędu otwierania FIFO
+        fprintf(stderr, "[PASSENGER %d] Error opening sternik FIFO\n", pid);
+        return 1;
+    }
+
+    // Przygotowanie odpowiedniego żądania do sternika
+    if (skip_queue)
+    {
+        snprintf(request_buffer, sizeof(request_buffer), "SKIP_QUEUE %d %d %d %d\n", pid, age, discount, group);
+    }
+    else
+    {
+        snprintf(request_buffer, sizeof(request_buffer), "QUEUE %d %d %d %d\n", pid, age, discount, group);
+    }
+
+    write(sternik_fifo, request_buffer, strlen(request_buffer)); // Wysłanie żądania do FIFO
+    close(sternik_fifo); // Zamknięcie FIFO
+
+    return 0; // Zakończenie programu
 }

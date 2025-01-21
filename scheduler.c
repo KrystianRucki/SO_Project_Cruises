@@ -17,6 +17,8 @@ q - QUIT, konczy symulacje
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/select.h>
+#include <sys/socket.h> // Operacje na gniazdach
+#include <sys/un.h>     // Struktury i funkcje dla gniazd domeny Unix
 
 // --- Sciezki do plikow ---
 #define PATH_CASHIER   "./cashier"
@@ -25,8 +27,10 @@ q - QUIT, konczy symulacje
 #define PATH_STERNIK   "./sternik"
 
 // --- FIFO (named) ---
-#define FIFO_CASHIER_IN  "cashier_in_fifo"
 #define FIFO_STERNIK_IN  "sternik_in_fifo"
+
+// --- Sockety ---
+#define SOCKET_PATH "/tmp/cashier_socket" // Ścieżka do gniazda
 
 // --- Maksymalna ilosc pasazerow ---
 #define MAX_PASS 120
@@ -56,6 +60,43 @@ static pthread_t timeout_killer_thread; //watek konczacy symulacje po TIMEOUT
 static volatile int gen_running_flag = 1; //flaga, ktora steruje jego praca
 
 // --- Funkcje ---
+// Funkcja wysyłająca komendę QUIT do kasjera
+void send_quit_to_cashier()
+{
+    // Tworzenie gniazda
+    int client_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (client_fd < 0) {
+        perror("[SCHEDULER] Error creating socket");
+        exit(1);
+    }
+
+    // Konfiguracja adresu gniazda kasjera
+    struct sockaddr_un server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sun_family = AF_UNIX;
+    strncpy(server_addr.sun_path, SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
+
+    // Łączenie z gniazdem kasjera
+    if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("[SCHEDULER] Error connecting to cashier");
+        close(client_fd);
+        exit(1);
+    }
+
+    // Wysłanie komendy "QUIT" do kasjera
+    const char *quit_message = "QUIT\n";
+    if (write(client_fd, quit_message, strlen(quit_message)) < 0) {
+        perror("[SCHEDULER] Error sending QUIT message");
+        close(client_fd);
+        exit(1);
+    }
+
+    printf("[SCHEDULER] Sent QUIT command to cashier.\n");
+
+    // Zamknięcie połączenia
+    close(client_fd);
+}
+
 void end_sim();
 
 static pid_t do_child_job(const char *command, char *const argv[]);
@@ -106,7 +147,7 @@ static void do_passenger_job(int pid, int age, int group)
         pid_pass[passenger_count++] = pc;
         printf("[SCHEDULER] Passenger pid = %d age = %d group = %d => processPID = %d.\n", pid, age, group, pc); //pid z generatora, processPID - rzeczywisty pid procesu z forka
         total_gen_pass++;
-        usleep(200000);
+        // usleep(200000);
     }
     else
     {
@@ -244,10 +285,10 @@ void *time_killer_function(void *arg)
 }
 
 // --- Usuwanie plikow z systemu plikow ---
-void remove_fifo()
+void cleanup()
 {
     unlink(FIFO_STERNIK_IN);
-    unlink(FIFO_CASHIER_IN);
+    unlink(SOCKET_PATH);
 }
 
 // --- Konczenie symulacji---
@@ -297,17 +338,7 @@ void end_sim()
     }
 
     //QUIT
-    if(pid_cashier > 0)
-    {
-        int fk = open(FIFO_CASHIER_IN, O_WRONLY);
-        if(fk >= 0)
-        {
-            write(fk, "QUIT\n", 5);
-            close(fk);
-        }
-        printf("[SCHEDULER] QUIT => pid cashier = %d\n", pid_cashier);
-    
-    }
+    send_quit_to_cashier();
 
     if(pid_sternik > 0)
     {
@@ -330,7 +361,6 @@ void end_sim()
     if(pid_cashier > 0){kill(pid_cashier, SIGTERM);}
     if(pid_sternik > 0){kill(pid_sternik, SIGTERM);}
 
-    usleep(500000);
 
     //SIGKILL
     if(pid_police > 0)
@@ -384,7 +414,7 @@ void end_sim()
         pid_sternik = 0;
     }
 
-    remove_fifo();
+    cleanup();
     printf("[SCHEDULER] end_sim => FINISHED.\n");
 }
 
@@ -484,11 +514,14 @@ int main()
     TIMEOUT = user_timeout;
     while(getchar() != '\n'); // wczytanie entera jesli sie ewentualnie pojawi
 
-    remove_fifo();
+    cleanup();
     mkfifo(FIFO_STERNIK_IN, 0666);
-    mkfifo(FIFO_CASHIER_IN, 0666);
+    
+    //mechanizm ktory zapewni ze passengers nie zglosza sie do cashier przed jego utworzeniem - zamiast usleep
     start_sternik();
+    usleep(200000);
     start_cashier();
+    usleep(200000);
 
     //tworzenie watku: generatora i timeout_killer_thread
     pthread_create(&generator_thread, NULL, generator_function, NULL);
@@ -533,14 +566,20 @@ int main()
         if(ret == 0 ){/*uzytkownik nic nie wpisal*/}
         else
         {
-            if(FD_ISSET(STDIN_FILENO, &read_fds)) // jest cos do odczytania na stdin
+            if(FD_ISSET(STDIN_FILENO, &read_fds)) // jest coś do odczytania na stdin
             {
-                command = getchar();
+                int command = getchar(); // Odczytaj główną komendę
                 if(command == EOF){break;}
+
+                if(command == '\n'){continue;} // Ignoruj znak nowej linii 
 
                 if(command == 'q'){end_sim();break;}
                 else if(command == 'p'){start_police();}
                 else{printf("[SCHEDULER] Unknown command.\n");}
+
+                // Usuń pozostałe znaki w buforze
+                int ch;
+                while((ch = getchar()) != '\n' && ch != EOF);
             }
         }
     }
