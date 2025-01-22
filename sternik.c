@@ -10,6 +10,13 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <stdarg.h> //zmienna ilosc elemetow do insta_print
+#include <sys/socket.h> // Operacje na gniazdach
+#include <sys/un.h>     // Struktury i funkcje dla gniazd domeny Unix
+#include <semaphore.h>
+
+#define STERNIK_SOCKET_PATH "/tmp/sternik_socket"
+#define MAX_BUFFER_SIZE 256
+int terminate_sternik = 0;  // Flaga kontrolująca zakończenie programu
 
 //BOAT1
 #define N1 6
@@ -30,7 +37,14 @@ static int group_count[GROUP_MAX] = {0}; //sledzenie ile osob z konkretnej grupy
 
 //Dlugosc kolejki
 #define QUEUE_SIZE 30
-
+// Semafory do synchronizacji kolejki
+sem_t boat1_sem;
+sem_t boat2_sem;
+void init_semaphores() {
+    sem_init(&boat1_sem, 0, QUEUE_SIZE);  // Inicjalizacja semafora dla boat1
+    sem_init(&boat2_sem, 0, QUEUE_SIZE);  // Inicjalizacja semafora dla boat2
+    //dodaj obsluge bledow
+}
 // --- Struktura pasazera ---
 typedef struct
 {
@@ -93,6 +107,144 @@ static volatile sig_atomic_t boat2_active = 1, boat2_cruising = 0;
 static time_t start_time;
 static time_t end_time;
 
+static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+
+// --- Funkcja do natychmiastowego printowania ---
+static void insta_print(const char *message, ...)
+{
+    va_list ap;
+    va_start(ap, message);             // Inicjalizacja listy argumentow zmiennych
+    vfprintf(stdout, message, ap);     // Wypisanie na stdout z formatowaniem
+    fflush(stdout);                    // Natychmiastowe oproznienie bufora
+    va_end(ap);                        // Zakonczenie przetwarzania listy argumentow
+}
+
+void process_passenger_request(int client_sock_fd)
+{
+    char buffer[MAX_BUFFER_SIZE];
+    ssize_t bytes_read = read(client_sock_fd, buffer, sizeof(buffer) - 1);
+    
+    if (bytes_read < 0)
+    {
+        perror("[STERNIK] Error reading from client socket");
+        return;
+    }
+
+    buffer[bytes_read] = '\0'; // Null-terminate the string
+    int pid, age, discount, grp;
+    
+if(strncmp(buffer, "SKIP_QUEUE", 10) == 0)
+{
+        // Odbieranie SKIP_QUEUE
+        if(sscanf(buffer, "SKIP_QUEUE %d %d %d %d", &pid, &age, &discount, &grp) == 4)
+        {
+            PassengerData pass_i = {pid, discount, grp};
+            pthread_mutex_lock(&m);
+
+            // Wybór łodzi
+            srand(time(NULL));
+            int boat_nr = (grp > 0 || age < 15 || age > 70) ? 2 : 1;
+
+            if(boat_nr == 1 && boat1_active)
+            {
+                // Sprawdzanie, czy kolejka jest pełna
+                if(is_Full(&boat1_skip_queue))
+                {
+                    insta_print("[STERNIK] boat1_skip_queue is full => Passenger %d waiting...\n", pid);
+                    pthread_mutex_unlock(&m);
+                    sem_wait(&boat1_sem);  // Czekaj na semaforze, aż miejsce w kolejce się zwolni
+                    pthread_mutex_lock(&m);
+                    insta_print("[STERNIK] Passenger %d added to boat1_skip_queue after waiting.\n", pid);
+                }
+
+                add_to_queue(&boat1_skip_queue, pass_i);
+                insta_print("[STERNIK] Passenger %d skipping queue => boat1_skip_queue\n", pid);
+            }
+            else if(boat_nr == 2 && boat2_active)
+            {
+                // Sprawdzanie, czy kolejka jest pełna
+                if(is_Full(&boat2_skip_queue))
+                {
+                    insta_print("[STERNIK] boat2_skip_queue is full => Passenger %d waiting...\n", pid);
+                    pthread_mutex_unlock(&m);
+                    sem_wait(&boat2_sem);  // Czekaj na semaforze, aż miejsce w kolejce się zwolni
+                    pthread_mutex_lock(&m);
+                    insta_print("[STERNIK] Passenger %d added to boat2_skip_queue after waiting.\n", pid);
+                }
+
+                add_to_queue(&boat2_skip_queue, pass_i);
+                insta_print("[STERNIK] Passenger %d skipping queue => boat2_skip_queue\n", pid);
+            }
+            else
+            {
+                insta_print("[STERNIK] BOAT%d not active => REJECTED %d\n", boat_nr, pid);
+            }
+
+            pthread_mutex_unlock(&m);
+        }
+    }
+    else if(strncmp(buffer, "QUEUE", 5) == 0)
+    {
+        // Odbieranie QUEUE
+        if(sscanf(buffer, "QUEUE %d %d %d %d", &pid, &age, &discount, &grp) == 4)
+        {
+            PassengerData pass_i = {pid, discount, grp};
+            pthread_mutex_lock(&m);
+
+            // Wybór łodzi
+            srand(time(NULL));
+            int boat_nr = (grp > 0 || age < 15 || age > 70) ? 2 : 1;
+
+            if(boat_nr == 1 && boat1_active)
+            {
+                // Sprawdzanie, czy kolejka jest pełna
+                if(is_Full(&boat1_queue))
+                {
+                    insta_print("[STERNIK] boat1_queue is full => Passenger %d waiting...\n", pid);
+                    pthread_mutex_unlock(&m);
+                    sem_wait(&boat1_sem);  // Czekaj na semaforze, aż miejsce w kolejce się zwolni
+                    pthread_mutex_lock(&m);
+                    insta_print("[STERNIK] Passenger %d added to boat1_queue after waiting.\n", pid);
+                }
+
+                add_to_queue(&boat1_queue, pass_i);
+                insta_print("[STERNIK] Passenger %d => boat1 discount:%d%%\n", pid, discount);
+            }
+            else if(boat_nr == 2 && boat2_active)
+            {
+                // Sprawdzanie, czy kolejka jest pełna
+                if (is_Full(&boat2_queue))
+                {
+                    insta_print("[STERNIK] boat2_queue is full => Passenger %d waiting...\n", pid);
+                    pthread_mutex_unlock(&m);
+                    sem_wait(&boat2_sem);  // Czekaj na semaforze, aż miejsce w kolejce się zwolni
+                    pthread_mutex_lock(&m);
+                    insta_print("[STERNIK] Passenger %d added to boat2_queue after waiting.\n", pid);
+                }
+
+                add_to_queue(&boat2_queue, pass_i);
+                insta_print("[STERNIK] Passenger %d => boat2 discount:%d%%\n", pid, discount);
+            }
+            else
+            {
+                insta_print("[STERNIK] BOAT%d not active => REJECTED %d\n", boat_nr, pid);
+            }
+
+            pthread_mutex_unlock(&m);
+        }
+    }
+    else if(strncmp(buffer, "QUIT", 4) == 0)
+    {
+        // Odbieranie QUIT
+        insta_print("[STERNIK] Terminating. (QUIT RECEIVED)\n");
+        terminate_sternik = 1;  // Ustawienie flagi zakończenia serwera
+    }
+    else
+    {
+        printf("[STERNIK] UNKNOWN: %s\n", buffer);
+    }
+}
+
 // --- Pomost ---
 static int bridge_count; //liczba osob na pomoscie
 
@@ -103,7 +255,7 @@ typedef enum
 
 static BridgeState bridge_state;
 
-static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+
 static pthread_cond_t cond_bridge_free = PTHREAD_COND_INITIALIZER;
 
 // --- Funkcje dla pomostu ---
@@ -153,22 +305,14 @@ static void end_outgoing()
     pthread_cond_broadcast(&cond_bridge_free);
 }
 
-// --- Funkcja do natychmiastowego printowania ---
-static void insta_print(const char *message, ...)
-{
-    va_list ap;
-    va_start(ap, message);             // Inicjalizacja listy argumentow zmiennych
-    vfprintf(stdout, message, ap);     // Wypisanie na stdout z formatowaniem
-    fflush(stdout);                    // Natychmiastowe oproznienie bufora
-    va_end(ap);                        // Zakonczenie przetwarzania listy argumentow
-}
+
 
 // --- SIGNAL HANDLERS ---
 static void SIGUSR1_handler(int signal1)
 {
     if(!boat1_cruising){insta_print("[BOAT1] received (SIGUSR1) in port => end.\n");}
     else{insta_print("[BOAT1] received (SIGUSR1) while cruising => will end after cruise.\n");}
-
+    terminate_sternik = 1;
     boat1_active = 0;
 }
 
@@ -176,7 +320,7 @@ static void SIGUSR2_handler(int signal2)
 {
     if(!boat2_cruising){insta_print("[BOAT2] received (SIGUSR2) in port => end.\n");}
     else{insta_print("[BOAT2] received (SIGUSR2) while cruising => will end after cruise.\n");}
-
+    terminate_sternik = 1;
     boat2_active = 0;
 }
 
@@ -252,6 +396,7 @@ void *boat1_thread(void *arg)
                 {
                     //jest miejsce, sciagamy pasazera z kolejki
                     remove_from_queue(q);
+                    sem_post(&boat1_sem);
                     //wejdzie na pomost - jesli jest miejsce i INCOMING
                     if (enter_bridge())
                     {
@@ -348,7 +493,9 @@ void *boat1_thread(void *arg)
 
         // usleep(50000);
     }
-
+    pthread_mutex_lock(&m);
+    boat1_active = 0;
+    pthread_mutex_unlock(&m);
     insta_print("[BOAT1] THREAD END.\n");
     return NULL;
 }
@@ -423,6 +570,7 @@ void *boat2_thread(void *arg)
                 {
                     //jest miejsce, sciagamy pasazera z kolejki
                     remove_from_queue(q);
+                    sem_post(&boat2_sem);
                     //wejdzie na pomost - jesli jest miejsce i INCOMING
                     if(enter_bridge())
                     {
@@ -568,6 +716,9 @@ void *boat2_thread(void *arg)
         // usleep(50000);
     }
 
+    pthread_mutex_lock(&m);
+    boat2_active = 0;
+    pthread_mutex_unlock(&m);
     insta_print("[BOAT2] THREAD END.\n");
     return NULL;
 }
@@ -603,149 +754,63 @@ int main(int argc, char*argv[])
     // Kolejki dla boat2
     init_queue(&boat2_queue);
     init_queue(&boat2_skip_queue);
-
+    init_semaphores();
     init_bridge();
 
-    unlink("sternik_in_fifo");
-    mkfifo("sternik_in_fifo", 0666);
+    // Usunięcie istniejącego gniazda
+    unlink(STERNIK_SOCKET_PATH);
 
-    int fd_sin = open("sternik_in_fifo", O_RDONLY | O_NONBLOCK);
-    if(fd_sin < 0)
+    // Tworzenie gniazda do komunikacji
+    int sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if(sock_fd < 0)
     {
-        perror("[STERNIK] sternik_in_fifo error");
+        perror("[STERNIK] Error creating socket");
+        return 1;
+    }
+    // Adres gniazda
+    struct sockaddr_un server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sun_family = AF_UNIX;
+    strncpy(server_addr.sun_path, STERNIK_SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
+
+    // Powiązanie gniazda
+    if(bind(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        perror("[STERNIK] Error binding socket");
+        close(sock_fd);
         return 1;
     }
 
+    // Nasłuchiwanie połączeń
+    if(listen(sock_fd, 5) < 0)
+    {
+        perror("[STERNIK] Error listening on socket");
+        close(sock_fd);
+        return 1;
+    }
+    insta_print("[STERNIK] START (TIMEOUT = %d).\n", timeout_val);
     pthread_t thread1, thread2;
     pthread_create(&thread1, NULL, boat1_thread, NULL);
     pthread_create(&thread2, NULL, boat2_thread, NULL);
 
-    insta_print("[STERNIK] START (TIMEOUT = %d).\n", timeout_val);
-
-    char buffer[256];
-    while(1)
+    while(!terminate_sternik)
     {
-        ssize_t n = read(fd_sin, buffer, sizeof(buffer)-1);
-        if(n > 0)
+        int client_sock_fd = accept(sock_fd, NULL, NULL);
+        if(client_sock_fd < 0)
         {
-            buffer[n] = '\0';
-            if(strncmp(buffer, "SKIP_QUEUE", 10) == 0)
+            if (errno == EINTR)
             {
-                int pid = 0, age = 0, discount = 0, grp = 0;
-                sscanf(buffer, "SKIP_QUEUE %d %d %d %d", &pid, &age, &discount, &grp);
-                
-                pthread_mutex_lock(&m);
-
-                //Wybor lodzi
-                srand(time(NULL));
-                int boat_nr = rand() % 2 + 1; //boat1 lub boat2 domyslnie, pozniej case na boat2
-
-                if (grp > 0){boat_nr = 2;}
-                else if(age < 15 || age > 70){boat_nr = 2;}//zwykly "case", sprawdzamy dziecko < 15 => boat=2, wiek > 70 => boat = 2,
-                
-                PassengerData pass_i = {pid, discount, grp};
-                if(boat_nr == 1 && boat1_active)
-                {
-                    if(!is_Full(&boat1_skip_queue))
-                    {
-                        add_to_queue(&boat1_skip_queue, pass_i);
-                        insta_print("[STERNIK] Passenger %d skipping queue => boat1_skip_queue\n", pid);
-                    }
-                    else
-                    {
-                        insta_print("[STERNIK] boat1_skip_queue is full => REJECTED %d\n", pid);
-                    }
-                }
-                else if(boat_nr == 2 && boat2_active)
-                {
-                    if(!is_Full(&boat2_skip_queue))
-                    {
-                        add_to_queue(&boat2_skip_queue, pass_i);
-                        insta_print("[STERNIK] Passenger %d skipping queue => boat2_skip_queue\n", pid);
-                    }
-                    else
-                    {
-                        insta_print("[STERNIK] boat2_skip_queue is full => REJECTED %d\n", pid);
-                    }
-                }
-                else
-                {
-                    insta_print("[STERNIK] BOAT%d not active => REJECTED %d\n", boat_nr, pid);
-                }
-                pthread_mutex_unlock(&m);
-
+                // Jeśli accept został przerwany przez sygnał, kontynuuj pętlę
+                close(client_sock_fd);
+                continue;
             }
-            else if(strncmp(buffer,"QUEUE", 5) == 0) //normalna kolejka
-            {
-                int pid = 0, age = 0, discount = 0, grp = 0;
-                int ret_elements = sscanf(buffer, "QUEUE %d %d %d %d", &pid, &age, &discount, &grp);
-                if(ret_elements < 4)
-                {
-                    printf("[STERNIK] Incorrect queue/arguments: %s\n",buffer);
-                    continue;
-                }
-
-                PassengerData pass_i = {pid, discount, grp};
-
-                pthread_mutex_lock(&m);
-
-                //Wybor lodzi
-                srand(time(NULL));
-                int boat_nr = rand() % 2 + 1; //boat1 lub boat2 domyslnie, pozniej case na boat2
-
-                if (grp > 0){boat_nr = 2;}
-                else if(age < 15 || age > 70){boat_nr = 2;}//zwykly "case", sprawdzamy dziecko < 15 => boat=2, wiek > 70 => boat = 2,
-
-                if(boat_nr == 1 && boat1_active)
-                {
-                    if(!is_Full(&boat1_queue))
-                    {
-                        add_to_queue(&boat1_queue, pass_i);
-                        insta_print("[STERNIK] Passenger %d => boat1 discount:%d%%\n", pid, discount);
-                    }
-                    else
-                    {
-                        insta_print("[STERNIK] boat1_queue is full => REJECTED %d\n", pid);
-                    }
-                }
-                else if(boat_nr == 2 && boat2_active)
-                {
-                    if(!is_Full(&boat2_queue))
-                    {
-                        add_to_queue(&boat2_queue, pass_i);
-                        insta_print("[STERNIK] Passenger %d => boat2 discount:%d%%\n", pid, discount);
-                    }
-                    else
-                    {
-                        insta_print("[STERNIK] boat2_queue is full => REJECTED %d\n", pid);
-                    }
-                }
-                else
-                {
-                    insta_print("[STERNIK] BOAT%d not active => REJECTED %d\n", boat_nr, pid);
-                }
-                pthread_mutex_unlock(&m);
-
-            }
-            else if(strncmp(buffer, "QUIT", 4) == 0)
-            {
-                insta_print("[STERNIK] QUIT => END\n");
-                break;
-            }
-            else{printf("[STERNIK] UNKNOWN: %s\n", buffer);}
+            perror("[STERNIK] Error accepting connection");
+            continue;
         }
-
-        pthread_mutex_lock(&m);
-        if(!boat1_active && !boat2_active)
-        {
-            pthread_mutex_unlock(&m);
-            insta_print("[STERNIK] Both boats not active => END.\n");
-            break;
-        }
-        pthread_mutex_unlock(&m);
-
-        // usleep(50000);
+        process_passenger_request(client_sock_fd);
+        close(client_sock_fd);
     }
+
 
     pthread_mutex_lock(&m);
     boat1_active = 0;
@@ -756,7 +821,9 @@ int main(int argc, char*argv[])
     pthread_join(thread1, NULL);
     pthread_join(thread2, NULL);
 
-    close(fd_sin);
+    close(sock_fd);
+    sem_destroy(&boat1_sem);
+    sem_destroy(&boat2_sem);
     insta_print("[STERNIK] Service ended.\n");
 
     return 0;

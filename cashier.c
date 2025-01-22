@@ -6,7 +6,7 @@
 #include <errno.h>      // Definicja zmiennej errno
 #include <string.h>     // Funkcje do manipulacji łańcuchami, np. strncpy()
 
-#define SOCKET_PATH "/tmp/cashier_socket" // Ścieżka do gniazda domeny Unix
+#define CASHIER_SOCKET_PATH "/tmp/cashier_socket" // Ścieżka do gniazda domeny Unix
 #define MAX_PASSENGER_IDS 6000            // Maksymalna liczba identyfikatorów pasażerów
 
 // Tablica przechowująca informacje, czy pasażer o danym ID podróżował wcześniej
@@ -87,7 +87,7 @@ static void process_request(int client_fd)
 int main(void)
 {
     // Usuwanie poprzedniego gniazda, jeśli istnieje
-    unlink(SOCKET_PATH);
+    unlink(CASHIER_SOCKET_PATH);
 
     // Tworzenie gniazda domeny Unix
     int server_fd = socket(AF_UNIX, SOCK_STREAM, 0); // socket typu strumieniowego, komunikacja na polaczeniach zamiast wysyłaniu pojedynczych wiadomości
@@ -100,7 +100,7 @@ int main(void)
     struct sockaddr_un server_addr;
     memset(&server_addr, 0, sizeof(server_addr)); // Zerowanie struktury adresu
     server_addr.sun_family = AF_UNIX;            // Ustawienie domeny gniazda na Unix, sun_family - rodzina adresow AF_UNIX
-    strncpy(server_addr.sun_path, SOCKET_PATH, sizeof(server_addr.sun_path) - 1); // Ustawienie ścieżki gniazda
+    strncpy(server_addr.sun_path, CASHIER_SOCKET_PATH, sizeof(server_addr.sun_path) - 1); // Ustawienie ścieżki gniazda
 
     // Powiązanie gniazda z adresem - serwer laczy swoj socket z okreslana sciezka - inne procesy beda mogly sie połączyć z tym socketem
     if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
@@ -136,7 +136,7 @@ int main(void)
 
     // Sprzątanie po zakończeniu działania
     close(server_fd);      // Zamknięcie gniazda nasłuchującego
-    unlink(SOCKET_PATH);   // Usunięcie pliku gniazda
+    unlink(CASHIER_SOCKET_PATH);   // Usunięcie pliku gniazda
 
     printf("[CASHIER] Service ended.\n");
     return 0; // Zakończenie programu

@@ -26,11 +26,9 @@ q - QUIT, konczy symulacje
 #define PATH_POLICE    "./police"
 #define PATH_STERNIK   "./sternik"
 
-// --- FIFO (named) ---
-#define FIFO_STERNIK_IN  "sternik_in_fifo"
-
 // --- Sockety ---
-#define SOCKET_PATH "/tmp/cashier_socket" // Ścieżka do gniazda
+#define CASHIER_SOCKET_PATH "/tmp/cashier_socket" // Ścieżka do gniazda
+#define STERNIK_SOCKET_PATH "/tmp/sternik_socket"
 
 // --- Maksymalna ilosc pasazerow ---
 #define MAX_PASS 120
@@ -74,7 +72,7 @@ void send_quit_to_cashier()
     struct sockaddr_un server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sun_family = AF_UNIX;
-    strncpy(server_addr.sun_path, SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
+    strncpy(server_addr.sun_path, CASHIER_SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
 
     // Łączenie z gniazdem kasjera
     if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
@@ -96,6 +94,54 @@ void send_quit_to_cashier()
     // Zamknięcie połączenia
     close(client_fd);
 }
+
+void send_quit_to_sternik()
+{
+    // Tworzenie gniazda
+    int client_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (client_fd < 0)
+    {
+        perror("[SCHEDULER] Error creating socket");
+        return; // Nie przerywamy procesu
+    }
+
+    // Konfiguracja adresu gniazda sternika
+    struct sockaddr_un server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sun_family = AF_UNIX;
+    strncpy(server_addr.sun_path, STERNIK_SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
+
+    // Łączenie z gniazdem sternika
+    if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        if (errno == ECONNREFUSED || errno == ENOENT)
+        {
+            // Jeśli sternik zakończył pracę, ignorujemy błąd
+            printf("[SCHEDULER] Sternik is not active, skipping QUIT.\n");
+        }
+        else
+        {
+            perror("[SCHEDULER] Error connecting to sternik");
+        }
+        close(client_fd);
+        return;
+    }
+
+    // Wysłanie komendy "QUIT" do sternika
+    const char *quit_message = "QUIT\n";
+    if (write(client_fd, quit_message, strlen(quit_message)) < 0)
+    {
+        perror("[SCHEDULER] Error sending QUIT message");
+    }
+    else
+    {
+        printf("[SCHEDULER] Sent QUIT command to sternik.\n");
+    }
+
+    // Zamknięcie połączenia
+    close(client_fd);
+}
+
 
 void end_sim();
 
@@ -265,30 +311,55 @@ void *generator_function(void *arg)
         }
 
         // przychodza losowo co pewien czas 1s-2s
-        int rnd_sleep = rand()%2 + 1;
-        for (int i=0; i < rnd_sleep * 10 && !terminate_flag; i++){usleep(100000);}
+        int rnd_sleep = (rand() % 2 + 1) * 1000000; // Losowy czas 1–2 sekundy w mikrosekundach
+        usleep(rnd_sleep);
     }
     return NULL;
 }
 
 
-// --- Funkcja dla watku (timeout_killer_thread) ---
 void *time_killer_function(void *arg)
 {
-    sleep(TIMEOUT);
-    if (!terminate_flag)
+    time_t start_time, current_time;
+
+    // Pobieramy czas startu (w sekundach)
+    start_time = time(NULL);
+
+    while(1)
     {
-        printf("[SCHEDULER-TIME] Time out = %d => END\n", TIMEOUT);
-        end_sim();
+        // Pobieramy bieżący czas
+        current_time = time(NULL);
+
+        // Sprawdzamy, czy minął czas (TIMEOUT)
+        if (current_time - start_time >= TIMEOUT)
+        {
+            if (!terminate_flag)
+            {
+                printf("[SCHEDULER-TIME] Time out = %d seconds => END\n", TIMEOUT);
+                end_sim();
+            }
+            return NULL;
+        }
+
+        // Jeśli symulacja została przerwana, kończymy przed czasem
+        if (terminate_flag)
+        {
+            printf("[SCHEDULER-TIME] Simulation interrupted after %d seconds.\n", (int)(current_time - start_time));
+            return NULL;
+        }
+
+        // Opóźnienie przed kolejną kontrolą (10ms)
+        usleep(10000); // 10ms
     }
+
     return NULL;
 }
 
 // --- Usuwanie plikow z systemu plikow ---
 void cleanup()
 {
-    unlink(FIFO_STERNIK_IN);
-    unlink(SOCKET_PATH);
+    unlink(STERNIK_SOCKET_PATH);
+    unlink(CASHIER_SOCKET_PATH);
 }
 
 // --- Konczenie symulacji---
@@ -306,7 +377,9 @@ void end_sim()
     terminate_flag = 1;
     gen_running_flag = 0;  
 
-    printf("[SCHEDULER] end_sim(): CHECK, QUIT, SIGTERM, SIGKILL (...)\n");
+    // printf("[SCHEDULER] end_sim(): CHECK, QUIT, SIGTERM, SIGKILL (...)\n");
+    printf("\033[38;5;15m[SCHEDULER] end_sim(): \033[38;5;15mCHECK, \033[38;5;226mQUIT, \033[38;5;214mSIGTERM, \033[38;5;1mSIGKILL \033[0m(...)\n");
+
     printf("[SCHEDULER] Total passengers generated: %d.\n", total_gen_pass);
 
     //sprawdzamy, ktore przestaly dzialac
@@ -338,18 +411,11 @@ void end_sim()
     }
 
     //QUIT
-    send_quit_to_cashier();
+    if(pid_sternik > 0){send_quit_to_sternik();}
 
-    if(pid_sternik > 0)
-    {
-        int fst= open(FIFO_STERNIK_IN, O_WRONLY | O_NONBLOCK);
-        if(fst >= 0)
-        {
-            write(fst,"QUIT\n", 5);
-            close(fst);
-        }
-        printf("[SCHEDULER] QUIT => pid sternik = %d\n", pid_sternik);
-    }
+    if(pid_cashier > 0){send_quit_to_cashier();}
+
+    usleep(500000);
 
     //SIGTERM
     if(pid_police > 0){kill(pid_police, SIGTERM);}
@@ -360,7 +426,7 @@ void end_sim()
     }
     if(pid_cashier > 0){kill(pid_cashier, SIGTERM);}
     if(pid_sternik > 0){kill(pid_sternik, SIGTERM);}
-
+    usleep(500000);
 
     //SIGKILL
     if(pid_police > 0)
@@ -515,7 +581,6 @@ int main()
     while(getchar() != '\n'); // wczytanie entera jesli sie ewentualnie pojawi
 
     cleanup();
-    mkfifo(FIFO_STERNIK_IN, 0666);
     
     //mechanizm ktory zapewni ze passengers nie zglosza sie do cashier przed jego utworzeniem - zamiast usleep
     start_sternik();

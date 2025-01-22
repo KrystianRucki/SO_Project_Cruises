@@ -8,7 +8,8 @@
 #include <errno.h>      // Definicja zmiennej errno
 #include <string.h>     // Funkcje do manipulacji łańcuchami, np. strncpy()
 
-#define SOCKET_PATH "/tmp/cashier_socket" // Ścieżka do gniazda domeny Unix dla komunikacji z kasjerem
+#define CASHIER_SOCKET_PATH "/tmp/cashier_socket" // Ścieżka do gniazda domeny Unix dla komunikacji z kasjerem
+#define STERNIK_SOCKET_PATH "/tmp/sternik_socket"  // Ścieżka do gniazda sternika
 #define MAX_RETRIES 5  // Maksymalna liczba prób ponownego połączenia
 #define RETRY_DELAY 1  // Opóźnienie między próbami połączenia (w sekundach)
 
@@ -40,7 +41,7 @@ int main(int argc, char *argv[])
     struct sockaddr_un server_addr;
     memset(&server_addr, 0, sizeof(server_addr)); // Zerowanie struktury adresu
     server_addr.sun_family = AF_UNIX;            // Ustawienie typu domeny Unix
-    strncpy(server_addr.sun_path, SOCKET_PATH, sizeof(server_addr.sun_path) - 1); // Ustawienie ścieżki do gniazda
+    strncpy(server_addr.sun_path, CASHIER_SOCKET_PATH, sizeof(server_addr.sun_path) - 1); // Ustawienie ścieżki do gniazda
 
     // Mechanizm ponownych prób połączenia
     int retries = 0;
@@ -102,18 +103,39 @@ int main(int argc, char *argv[])
 
     close(sock_fd); // Zamknięcie gniazda
 
-    // --- CZESC STERNIKA ---
+    // --- Komunikacja ze sternikiem ---
 
-    // Otwieranie FIFO dla sternika i wysyłanie odpowiedniego żądania
-    int sternik_fifo = open("sternik_in_fifo", O_WRONLY);
-    if (sternik_fifo < 0)
+    // Tworzenie gniazda UNIX do komunikacji z sternikiem
+    int sternik_sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (sternik_sock_fd < 0)
     {
-        // Obsługa błędu otwierania FIFO
-        fprintf(stderr, "[PASSENGER %d] Error opening sternik FIFO\n", pid);
+        perror("[PASSENGER] Error creating socket for sternik");
         return 1;
     }
 
-    // Przygotowanie odpowiedniego żądania do sternika
+    struct sockaddr_un sternik_addr;
+    memset(&sternik_addr, 0, sizeof(sternik_addr));
+    sternik_addr.sun_family = AF_UNIX;
+    strncpy(sternik_addr.sun_path, STERNIK_SOCKET_PATH, sizeof(sternik_addr.sun_path) - 1);
+
+    retries = 0;
+    while (connect(sternik_sock_fd, (struct sockaddr *)&sternik_addr, sizeof(sternik_addr)) < 0)
+    {
+        if (errno == ENOENT && retries < MAX_RETRIES)
+        {
+            fprintf(stderr, "[PASSENGER] Error connecting to sternik socket: %s. Retrying...\n", strerror(errno));
+            retries++;
+            sleep(RETRY_DELAY);
+        }
+        else
+        {
+            perror("[PASSENGER] Error connecting to sternik socket");
+            close(sternik_sock_fd);
+            return 1;
+        }
+    }
+
+    // Przygotowanie żądania dla sternika
     if (skip_queue)
     {
         snprintf(request_buffer, sizeof(request_buffer), "SKIP_QUEUE %d %d %d %d\n", pid, age, discount, group);
@@ -123,8 +145,16 @@ int main(int argc, char *argv[])
         snprintf(request_buffer, sizeof(request_buffer), "QUEUE %d %d %d %d\n", pid, age, discount, group);
     }
 
-    write(sternik_fifo, request_buffer, strlen(request_buffer)); // Wysłanie żądania do FIFO
-    close(sternik_fifo); // Zamknięcie FIFO
+    if (write(sternik_sock_fd, request_buffer, strlen(request_buffer)) == -1)
+    {
+        perror("[PASSENGER] Error writing to sternik socket");
+        close(sternik_sock_fd);
+        return 1;
+    }
 
-    return 0; // Zakończenie programu
+    printf("[PASSENGER %d] Sent to sternik: %s", pid, request_buffer);
+
+    close(sternik_sock_fd); // Zamknięcie gniazda
+
+    return 0;
 }
