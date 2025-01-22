@@ -9,13 +9,14 @@
 #include <errno.h>
 #include <pthread.h>
 #include <sys/stat.h>
-#include <stdarg.h> //zmienna ilosc elemetow do insta_print
+#include <stdarg.h>     //zmienna ilosc elemetow do insta_print
 #include <sys/socket.h> // Operacje na gniazdach
 #include <sys/un.h>     // Struktury i funkcje dla gniazd domeny Unix
 #include <semaphore.h>
 
-#define STERNIK_SOCKET_PATH "/tmp/sternik_socket"
-#define MAX_BUFFER_SIZE 256
+#define STERNIK_SOCKET_PATH "/tmp/sternik_socket" // Ścieżka do gniazda dla procesu sternika
+#define MAX_BUFFER_SIZE 256                       // Maksymalny rozmiar bufora do przesyłania danych
+
 int terminate_sternik = 0;  // Flaga kontrolująca zakończenie programu
 
 //BOAT1
@@ -26,20 +27,20 @@ int terminate_sternik = 0;  // Flaga kontrolująca zakończenie programu
 #define N2 8
 #define T2 7
 
-//jesli group bedzie > 0, to obslugujemy grupe, zalozeniem jest ze dziecko+opiekun
-#define GROUP_MAX 30000 
-static int group_targetval[GROUP_MAX] = {0}; //target wielkosci grupy
-static int group_count[GROUP_MAX] = {0}; //sledzenie ile osob z konkretnej grupy juz zaladowalismy
+// Jeśli grupa będzie większa niż 0, obsługujemy grupę (np. dziecko + opiekun)
+#define GROUP_MAX 30000                         // Maksymalna liczba grup, które możemy obsługiwać
+static int group_targetval[GROUP_MAX] = {0};    // Tablica przechowująca docelową wielkość grupy
+static int group_count[GROUP_MAX] = {0};        // Tablica śledząca, ile osób z konkretnej grupy zostało już załadowanych
 
+// Czas załadunku na pokład (ONBOARD_TIMEOUT) i limity dla pomostów
+#define ONBOARD_TIMEOUT 6   // Czas załadunku w sekundach
+#define K1 3                // Limit pasażerów na pomost 1 (mniejszy niż N1)
+#define K2 3                // Limit pasażerów na pomost 2 (mniejszy niż N2)
 
-#define ONBOARD_TIMEOUT 6 //czas zaladunku
-#define K1 3 //limit pomostu1 < Ni
-#define K2 3 //limit pomostu2 < Ni
-
-//Dlugosc kolejki
+// Długość kolejki pasażerów
 #define QUEUE_SIZE 30
 
-// Semafory do synchronizacji kolejki
+// Semafory do synchronizacji kolejek
 sem_t boat1_sem;
 sem_t boat2_sem;
 
@@ -61,14 +62,15 @@ typedef struct
     int group;
 } PassengerData;
 
-// --- Struktura kolejki pasazerow---
+// --- Struktura kolejki pasazerow ---
 typedef struct
 {
-    PassengerData items[QUEUE_SIZE];
-    int head, tail;
-    int count;
+    PassengerData items[QUEUE_SIZE];    // Tablica przechowująca elementy kolejki (pasażerów)
+    int head, tail;                     // Indeksy głowy i ogona kolejki
+    int count;                          // Liczba pasażerów w kolejce
 } PassengerQueue;
 
+// Funkcja inicjalizująca kolejkę pasażerów
 static void init_queue(PassengerQueue *q)
 {
     q->head=0;
@@ -76,20 +78,25 @@ static void init_queue(PassengerQueue *q)
     q->count=0;
 }
 
+// Funkcja sprawdzająca, czy kolejka jest pusta
 static int is_Empty(PassengerQueue *q){return q->count == 0;}
 
+// Funkcja sprawdzająca, czy kolejka jest pełna
 static int is_Full(PassengerQueue *q){return q->count == QUEUE_SIZE;}
 
+// Funkcja dodająca pasażera do kolejki
 static int add_to_queue(PassengerQueue *q, PassengerData itm)
 {
     if(is_Full(q)){return -1;}
 
     q->items[q->tail] = itm;
-    q->tail = (q->tail+1) % QUEUE_SIZE;
+    q->tail = (q->tail+1) % QUEUE_SIZE; //modulo dla okrężnej kolejki - cykliczne fifo
     q->count++;
 
     return 0;
 }
+
+// Funkcja ściągająca pasażera z kolejki
 static PassengerData remove_from_queue(PassengerQueue *q)
 {
     PassengerData tmp = {0,0,0};
@@ -115,7 +122,7 @@ static volatile sig_atomic_t boat2_active = 1, boat2_cruising = 0;
 static time_t start_time;
 static time_t end_time;
 
-static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER; // Muteks w celu synchronizacji stanu aktywności łodzi oraz innych działań
 
 // --- Funkcja do natychmiastowego printowania ---
 static void insta_print(const char *message, ...)
@@ -129,8 +136,8 @@ static void insta_print(const char *message, ...)
 
 void process_passenger_request(int client_sock_fd)
 {
-    char buffer[MAX_BUFFER_SIZE];
-    ssize_t bytes_read = read(client_sock_fd, buffer, sizeof(buffer) - 1);
+    char buffer[MAX_BUFFER_SIZE]; // Bufor do przechowywania danych przychodzących z klienta
+    ssize_t bytes_read = read(client_sock_fd, buffer, sizeof(buffer) - 1); // Odczytanie danych z gniazda
     
     if (bytes_read < 0)
     {
@@ -138,7 +145,7 @@ void process_passenger_request(int client_sock_fd)
         return;
     }
 
-    buffer[bytes_read] = '\0'; // Null-terminate the string
+    buffer[bytes_read] = '\0';  // Zakończenie ciągu znaków (null-terminate)
     int pid, age, discount, grp;
     
     if(strncmp(buffer, "SKIP_QUEUE", 10) == 0)
@@ -235,7 +242,7 @@ void process_passenger_request(int client_sock_fd)
             }
             else
             {
-                insta_print("[STERNIK] BOAT%d not active => REJECTED %d\n", boat_nr, pid);
+                insta_print("[STERNIK] BOAT%d not active => REJECTED %d\n", boat_nr, pid); //Poinformowanie, że dana łódź nie jest aktywna
             }
 
             pthread_mutex_unlock(&m);
@@ -245,7 +252,7 @@ void process_passenger_request(int client_sock_fd)
     {
         // Odbieranie QUIT
         insta_print("[STERNIK] Terminating. (QUIT RECEIVED)\n");
-        terminate_sternik = 1;  // Ustawienie flagi zakończenia serwera
+        terminate_sternik = 1;  // Ustawienie flagi zakończenia
     }
     else
     {
@@ -263,8 +270,6 @@ typedef enum
 } BridgeState;
 
 static BridgeState bridge1_state, bridge2_state;
-
-static pthread_cond_t cond_bridge_free = PTHREAD_COND_INITIALIZER;
 
 // --- Funkcje dla pomostu ---
 static void init_bridges()
@@ -339,109 +344,103 @@ static void SIGUSR2_handler(int signal2)
 // --- WATEK BOAT1 ---
 void *boat1_thread(void *arg)
 {
-    insta_print("[BOAT1] START N1 = %d T1 = %ds.\n", N1, T1);
+    insta_print("[BOAT1] START N1: %d T1: %ds.\n", N1, T1);
 
     while (1)
     {
-        //blokujemy mutex - sprawdzamy aktywnosc boat
+        // Blokowanie mutexu, sprawdzanie aktywności łodzi
         pthread_mutex_lock(&m);
-        if (!boat1_active)
+        if (!boat1_active) // Jeśli łódź jest nieaktywna, kończymy wątek
         {
-            pthread_mutex_unlock(&m);
+            pthread_mutex_unlock(&m); // Zwalniamy mutex
             insta_print("[BOAT1] boat1_active = 0, END\n");
-            break;
+            break; // Zakończenie pętli, łódź kończy działanie
         }
 
-        //sprawdzamy czy kolejki sa puste
+        // Sprawdzamy, czy obie kolejki są puste
         if (is_Empty(&boat1_skip_queue) && is_Empty(&boat1_queue))
         {
             pthread_mutex_unlock(&m);
-            // usleep(50000);
             continue;
         }
 
-        insta_print("[BOAT1] Onboarding...\n");
-        time_t onboard_starttime = time(NULL);
-        int onboarded = 0;
+        insta_print("[BOAT1] Onboarding...\n"); // Informacja o rozpoczęciu załadunku
+        time_t onboard_starttime = time(NULL);  // Czas rozpoczęcia załadunku
+        int onboarded = 0;                      // Licznik załadowanych pasażerów
         
-        //Tymczasowa struktura pasazerow na potrzebe rejsu - maksymalnie: N1 pasazerow
+        // Tymczasowa struktura do przechowywania pasażerów na pokładzie
         PassengerData rejsStruct[N1];
         int rejsCount = 0;
 
-        //ladujemy pasazerow dopoki jest miejsce i lodz jest aktywna (oraz dopoki tez jest czas na zaladunek - mozna odplynac nie zapelniajac calej lodzi)
+        // Ładujemy pasażerów dopóki jest miejsce, łódź jest aktywna i czas na załadunek
         while (rejsCount < N1 && boat1_active)
         {
             PassengerQueue *q = NULL;
 
-            //Priorytet na kolejke skip
+            // Priorytetowo próbujemy załadować pasażerów ze skip_queue
             if (!is_Empty(&boat1_skip_queue))
             {
                 q = &boat1_skip_queue;
             } 
-            //jesli nikogo nie ma w "skip queue" to bierzemy zwykla kolejke
+            // Jeśli nie ma pasażerów w skip_queue, ładujemy ze zwykłej kolejki
             else if (!is_Empty(&boat1_queue))
             {
                 q = &boat1_queue;
             }
             else
             {
-                //obie kolejki sa puste - odblokowujemy mutex na chwile
+                // Jeśli obie kolejki są puste, zwalniamy mutex i ponownie blokujemy, aby sprawdzić warunki
                 pthread_mutex_unlock(&m);
-                // usleep(50000);
                 pthread_mutex_lock(&m);
 
-                //Sprawdzamy czy lodz jest nadal aktywna
+                // Sprawdzamy, czy łódź jest nadal aktywna i czy nie przekroczyliśmy limitu czasu na załadunek
                 if(!boat1_active){break;}
-
-                //Sprawdzamy czas zaladunku
                 if(difftime(time(NULL), onboard_starttime) >= ONBOARD_TIMEOUT){break;}
-
+                
                 continue;
             }
 
-            //tutaj juz mamy dana kolejke q, pasazer na przodzie kolejki probuje wsiasc
+            // Mamy kolejkę do załadunku, bierzemy pasażera z przodu
             PassengerData p = q->items[q->head];
 
             if (bridge1_state == FREE || bridge1_state == INCOMING)
             {
-                if (bridge1_count < K1)
+                if (bridge1_count < K1) // Sprawdzamy, czy na pomoście jest miejsce
                 {
-                    //jest miejsce, sciagamy pasazera z kolejki
+                    // Zdejmujemy pasażera z kolejki
                     remove_from_queue(q);
-                    sem_post(&boat1_sem);
-                    //wejdzie na pomost - jesli jest miejsce i INCOMING
+                    sem_post(&boat1_sem); //Zwiększamy semafor, aby kolejni pasażerowie mogli zostać dodani do kolejki jeśli jest zapełniona
+                    
+                    // Pasażer wchodzi na pomost, jeśli jest miejsce i stan pomostu to INCOMING
                     if (enter_bridge1())
                     {
-                        //zajal pomost, zwalniamy go od razu - symulacja ze przeszedl wiec mozna zwolnic
-                        leave_bridge1();
-                        rejsStruct[rejsCount++] = p; //dodajemy go do struktury rejsu
-                        onboarded++;
+                        leave_bridge1();                // Po wejściu pasażera na pomost, zwalniamy go
+                        rejsStruct[rejsCount++] = p;    // Dodajemy pasażera do struktury rejsu
+                        onboarded++;                    // Zwiększamy licznik załadowanych pasażerów
                         insta_print("\033[1;38;5;14m[BOAT1] \033[38;5;15mPassenger %d (discount:%d%%) \033[38;5;10mentered [%d/%d]\033[0m\n", p.pid, p.discount, onboarded, N1);
                     }
                 }
                 else
                 {
-                    //pomost jest pelny
+                    // Jeśli pomost jest pełny, zwalniamy mutex i czekamy na miejsce
                     pthread_mutex_unlock(&m);
-                    // usleep(50000);
                     pthread_mutex_lock(&m);
                 }
             }
             else
             {
-                //stan OUTGOING, czekamy az sie zwolni
+                // Jeśli stan pomostu to OUTGOING, czekamy, aż się zwolni
                 pthread_mutex_unlock(&m);
-                // usleep(50000);
                 pthread_mutex_lock(&m);
             }
 
-            //sprawdzamy warunki zakonczenia petli
+            // Sprawdzamy warunki zakończenia pętli
             if (!boat1_active){break;}
             if (onboarded == N1){break;}
             if (difftime(time(NULL), onboard_starttime) >= ONBOARD_TIMEOUT){break;}
         }
 
-        //Jesli lodz przestanie byc active w trakcie onboardingu => trzeba zakonczyc
+        // Jeśli łódź przestaje być aktywna w trakcie załadunku, kończymy wątek
         if (!boat1_active)
         {
             pthread_mutex_unlock(&m);
@@ -449,15 +448,14 @@ void *boat1_thread(void *arg)
             break;
         }
 
-        //Jesli nikt nie wsiadl, czekamy chwile i powtarzamy cykl petli
+        // Jeśli nikt nie wszedł na pokład, czekamy chwilę i powtarzamy cykl
         if (onboarded == 0)
         {
             pthread_mutex_unlock(&m);
-            // usleep(50000);
             continue;
         }
-        
-        while ((bridge1_state == INCOMING || bridge1_count > 0) && boat1_active){} // Musimy zaczekac, az pomost sie zwolni - nikt nie wchodzi przed wyplynieciem
+        // Czekamy, aż pomost się zwolni (nikt nie wchodzi przed wypłynięciem)
+        while ((bridge1_state == INCOMING || bridge1_count > 0) && boat1_active){}
         
         if (!boat1_active)
         {
@@ -466,42 +464,45 @@ void *boat1_thread(void *arg)
             break;
         }
 
-        //sprawdzamy czy jest jeszcze czas na rejs
+        // Sprawdzamy, czy jest jeszcze czas na rejs
         time_t now = time(NULL);
         if (now + T1 > end_time)
         {
             insta_print("[BOAT1] no time left for a cruise.\n");
-            begin_outgoing1();
+            begin_outgoing1();  // Rozpoczynamy ruch wychodzący
             insta_print("[BOAT1] Passengers left.\n");
-            end_outgoing1();
+            end_outgoing1();    // Kończymy ruch wychodzący
             pthread_mutex_unlock(&m);
             break;
         }
 
-        //mozna wyplynac
+        // Rozpoczynamy rejs
         boat1_cruising = 1;
         insta_print("\033[1;38;5;14m[BOAT1] \033[38;5;10mDeparting with \033[1;38;5;15m%d\033[38;5;15m passengers.\033[0m\n", rejsCount);
         pthread_mutex_unlock(&m);
 
-        sleep(T1); //symulacja rejsu
+        sleep(T1); // Symulacja czasu trwania rejsu
 
-        //wracamy z rejsu, OUTGOING - nalezy wyladowac pasazerow
+        // Wracamy po rejsie, rozpoczynamy offboarding
         pthread_mutex_lock(&m);
         boat1_cruising = 0;
         insta_print("[BOAT1] Cruise finished => offboarding.\n"); //ruch wychodzacy (offboarding)
         begin_outgoing1();
         insta_print("[BOAT1] Passengers left.\n");
         end_outgoing1();
-
+        
+        // Sprawdzamy, czy łódź została wyłączona po zakończeniu rejsu
         if (!boat1_active)
         {
             pthread_mutex_unlock(&m);
-            insta_print("[BOAT1] signal executed after offboarding\n"); //sygnal po wyladunku
-            break;
+            insta_print("[BOAT1] signal executed after offboarding\n"); //Sygnał po wyładunku
+            break; // Kończymy wątek
         }
         pthread_mutex_unlock(&m);
 
     }
+
+    // Kończenie działania wątku, ustawienie łodzi na nieaktywną
     pthread_mutex_lock(&m);
     boat1_active = 0;
     pthread_mutex_unlock(&m);
@@ -514,110 +515,109 @@ void *boat1_thread(void *arg)
 //nie wyplywamy dopoki nie mamy pelnej grupy
 void *boat2_thread(void *arg)
 {
-    insta_print("[BOAT2] START N2 = %d T2 = %ds.\n",N2,T2);
+    insta_print("[BOAT2] START N2: %d T2: %ds.\n",N2,T2);
 
     while(1)
     {
+        // Blokowanie mutexu, sprawdzanie aktywności łodzi
         pthread_mutex_lock(&m);
-        if(!boat2_active)
+        if(!boat2_active) // Jeśli łódź jest nieaktywna, kończymy wątek
         {
             pthread_mutex_unlock(&m);
             insta_print("[BOAT2] boat2_active = 0, END\n");
-            break;
+            break; // Zakończenie pętli, łódź kończy działanie
         }
+
+        // Sprawdzamy, czy obie kolejki są puste
         if(is_Empty(&boat2_skip_queue) && is_Empty(&boat2_queue))
         {
             pthread_mutex_unlock(&m);
-            // usleep(50000);
             continue;
         }
         
-        insta_print("[BOAT2] Onboarding...\n");
-        time_t onboard_starttime = time(NULL);
-        int onboarded = 0;
+        insta_print("[BOAT2] Onboarding...\n"); // Informacja o rozpoczęciu załadunku
+        time_t onboard_starttime = time(NULL);  // Czas rozpoczęcia załadunku
+        int onboarded = 0;                      // Licznik załadowanych pasażerów
         
-        //Tymczasowa struktura pasazerow na potrzebe rejsu - maksymalnie: N2 pasazerow
+        // Tymczasowa struktura do przechowywania pasażerów na pokładzie
         PassengerData rejsStruct[N2];
         int rejsCount = 0;
 
+        // Ładujemy pasażerów dopóki jest miejsce, łódź jest aktywna i czas na załadunek
         while(rejsCount<N2 && boat2_active)
         {
             PassengerQueue *q=NULL;
 
-            //Priorytet na kolejke skip
+            // Priorytetowo próbujemy załadować pasażerów ze skip_queue
             if(!is_Empty(&boat2_skip_queue))
             {
                 q = &boat2_skip_queue;
             }
-            //jesli nikogo nie ma w "skip queue" to bierzemy zwykla kolejke
+            // Jeśli nie ma pasażerów w skip_queue, ładujemy ze zwykłej kolejki
             else if(!is_Empty(&boat2_queue))
             {
                 q = &boat2_queue;
             }
             else
             {
-                //obie kolejki sa puste - odblokowujemy mutex na chwile
+                // Jeśli obie kolejki są puste, zwalniamy mutex i ponownie blokujemy, aby sprawdzić warunki
                 pthread_mutex_unlock(&m);
-                // usleep(50000);
                 pthread_mutex_lock(&m);
 
-                //Sprawdzamy czy lodz jest nadal aktywna
+                // Sprawdzamy, czy łódź jest nadal aktywna i czy nie przekroczyliśmy limitu czasu na załadunek
                 if(!boat2_active){break;}
-
-                //Sprawdzamy czas zaladunku
                 if(difftime(time(NULL),onboard_starttime)>=ONBOARD_TIMEOUT){break;}
 
                 continue;
             }
 
-            //tutaj juz mamy dana kolejke q, pasazer na prodzie kolejki probuje wsiasc
+            // Mamy kolejkę do załadunku, bierzemy pasażera z przodu
             PassengerData p = q->items[q->head];
 
             if(bridge2_state == FREE || bridge2_state == INCOMING)
             {
-                if(bridge2_count < K2)
+                if(bridge2_count < K2) // Sprawdzamy, czy na pomoście jest miejsce
                 {
-                    //jest miejsce, sciagamy pasazera z kolejki
+                    // Zdejmujemy pasażera z kolejki
                     remove_from_queue(q);
-                    sem_post(&boat2_sem);
-                    //wejdzie na pomost - jesli jest miejsce i INCOMING
+                    sem_post(&boat2_sem); //Zwiększamy semafor, aby kolejni pasażerowie mogli zostać dodani do kolejki jeśli jest zapełniona
+                    
+                    // Pasażer wchodzi na pomost, jeśli jest miejsce i stan pomostu to INCOMING
                     if(enter_bridge2())
                     {
-                        //zajal pomost, zwalniamy go od razu - symulacja ze przeszedl wiec mozna zwolnic
-                        leave_bridge2();
-
+                        leave_bridge2(); // Po wejściu pasażera na pomost, zwalniamy go
                         //group handling
                         if(p.group > 0 && group_targetval[p.group] == 0)
                         {
-                            group_targetval[p.group] = 2; //jesli ma grupe oraz w tablicy z wartoscia target ma 0, to zmieniamy target na 2 - zalozenie dziecko+rodzic
+                            group_targetval[p.group] = 2; //Jeśli ma grupe oraz w tablicy z wartoscia target ma 0, to zmieniamy target na 2 - zalozenie dziecko+rodzic
                         }
-                        group_count[p.group]++; 
-                        rejsStruct[rejsCount++] = p;
-                        onboarded++;
+                        group_count[p.group]++;         //Zwiększamy group_count danej grupy
+                        rejsStruct[rejsCount++] = p;    // Dodajemy pasażera do struktury rejsu
+                        onboarded++;                    // Zwiększamy licznik załadowanych pasażerów
                         insta_print("\033[1;38;5;33m[BOAT2] \033[38;5;15mPassenger %d (discount:%d%% group:%d) \033[38;5;10mentered [%d/%d]\033[0m\n", p.pid, p.discount, p.group, onboarded, N2);
                     }
                 }
                 else
                 {
-                    //pomost jest pelny
+                    // Jeśli pomost jest pełny, zwalniamy mutex i czekamy na miejsce
                     pthread_mutex_unlock(&m);
                     pthread_mutex_lock(&m);
                 }
             }
             else
             {
-                //stan OUTGOING, czekamy az sie zwolni
+                // Jeśli stan pomostu to OUTGOING, czekamy, aż się zwolni
                 pthread_mutex_unlock(&m);
                 pthread_mutex_lock(&m);
             }
             
-            //sprawdzamy warunki zakonczenia petli
+            // Sprawdzamy warunki zakończenia pętli
             if(!boat2_active){break;}
             if(onboarded == N2){break;}
             if(difftime(time(NULL), onboard_starttime) >= ONBOARD_TIMEOUT){break;}
         }
 
-        //Jesli lodz przestanie byc active w trakcie onboardingu => trzeba zakonczyc
+        // Jeśli łódź przestaje być aktywna w trakcie załadunku, kończymy wątek
         if(!boat2_active)
         {
             pthread_mutex_unlock(&m);
@@ -625,14 +625,15 @@ void *boat2_thread(void *arg)
             break;
         }
 
-        //Jesli nikt nie wsiadl, powtarzamy cykl petli
+        // Jeśli nikt nie wszedł na pokład, czekamy chwilę i powtarzamy cykl
         if(onboarded == 0)
         {
             pthread_mutex_unlock(&m);
             continue;
         }
 
-        while((bridge2_state == INCOMING || bridge2_count > 0) && boat2_active){} // Musimy zaczekac, az pomost sie zwolni - nikt nie wchodzi przed wyplynieciem
+        // Czekamy, aż pomost się zwolni (nikt nie wchodzi przed wypłynięciem)
+        while((bridge2_state == INCOMING || bridge2_count > 0) && boat2_active){}
 
         if(!boat2_active)
         {
@@ -641,10 +642,11 @@ void *boat2_thread(void *arg)
             break;
         }
 
-        //sprawdzenie czy mamy wszystkie osoby z danej grupy
-        //wszyscy w rejsStruct: group>0 --> group_count[group] = 2, jesli nie spelnione to nie płyną
+
+        // Sprawdzenie, czy wszyscy pasażerowie z danej grupy zostali załadowani na pokład
+        //Wszyscy w rejsStruct z group > 0 muszą mieć group_count[group] = 2, jeśli nie spełnione to nie płyną
         int f_allGroupsAreFine = 1;
-        for(int i=0; i < rejsCount; i++) //bierzemy i-tego pasazera i sprawdzamy powyzsze warunki
+        for(int i=0; i < rejsCount; i++) //Bierzemy i-tego pasazera i sprawdzamy powyższe warunki
         {
             PassengerData p = rejsStruct[i];
             if(p.group > 0 && group_count[p.group] < group_targetval[p.group])
@@ -657,7 +659,7 @@ void *boat2_thread(void *arg)
         if(!f_allGroupsAreFine)
         {
             insta_print("[BOAT2] Missing partner from the group => canceling cruise and offboarding.\n");
-            //wyladowanie wszystkich
+            //Wyładowanie wszystkich
             begin_outgoing2();
             insta_print("[BOAT2] %d passengers offboarded (incomplete group).\n", rejsCount);
             for(int i=0; i<rejsCount;i++)
@@ -674,32 +676,32 @@ void *boat2_thread(void *arg)
             continue;
         }
 
-        //sprawdzamy czy jest jeszcze czas na wyplyniecie
+        // Sprawdzamy, czy jest jeszcze czas na rejs
         time_t now = time(NULL);
         if(now + T2 > end_time)
         {
             insta_print("[BOAT2] no time left for a cruise.\n");
             //offboarding
-            begin_outgoing2();
+            begin_outgoing2();  // Rozpoczynamy ruch wychodzący
             insta_print("[BOAT2] %d passengers offboarded (end of time).\n",rejsCount);
             for(int i=0; i < rejsCount; i++)
             {
                 PassengerData pi = rejsStruct[i];
                 if(pi.group > 0){group_count[pi.group]--;}
             }
-            end_outgoing2();
+            end_outgoing2();    // Kończymy ruch wychodzący
             pthread_mutex_unlock(&m);
             break;
         }
 
-        //mozna wyplynac
+        // Rozpoczynamy rejs
         boat2_cruising = 1;
         insta_print("\033[1;38;5;33m[BOAT2] \033[38;5;10mDeparting with \033[1;38;5;15m%d\033[38;5;15m passengers.\033[0m\n", rejsCount);
         pthread_mutex_unlock(&m);
 
-        sleep(T2); //symulacja rejsu
+        sleep(T2); // Symulacja czasu trwania rejsu
 
-        //wracamy z rejsu, OUTGOING - nalezy wyladowac pasazerow
+        // Wracamy po rejsie, rozpoczynamy offboarding
         pthread_mutex_lock(&m);
         boat2_cruising = 0;
         insta_print("[BOAT2] Cruise finished => offboarding.\n");
@@ -707,6 +709,7 @@ void *boat2_thread(void *arg)
         insta_print("[BOAT2] Passengers left.\n");
         end_outgoing2();
 
+        // Sprawdzamy, czy łódź została wyłączona po zakończeniu rejsu
         if(!boat2_active)
         {
             pthread_mutex_unlock(&m);
@@ -717,6 +720,7 @@ void *boat2_thread(void *arg)
         
     }
 
+    // Kończenie działania wątku, ustawienie łodzi na nieaktywną
     pthread_mutex_lock(&m);
     boat2_active = 0;
     pthread_mutex_unlock(&m);
@@ -724,24 +728,28 @@ void *boat2_thread(void *arg)
     return NULL;
 }
 
-//--- MAIN ---
+// --- MAIN FUNCTION ---
+// Główna funkcja programu, która ustawia czas działania, obsługuje sygnały, 
+// tworzy gniazdo "serwera" i uruchamia wątki do obsługi łodzi.
 int main(int argc, char*argv[])
 {
-    setbuf(stdout,NULL);
+    setbuf(stdout,NULL);  // Ustawienie, by stdout nie był buforowany (istotne dla natychmiastowego wypisywania)
 
-    if(argc<2)
+    if(argc<2) // Sprawdzenie, czy został przekazany argument dla czasu (timeout)
     {
-        fprintf(stderr,"USED: %s [timeout_s]\n",argv[0]);
+        fprintf(stderr,"USED: %s [timeout_s]\n",argv[0]); 
         return 1;
     }
 
+    // Ustawienie wartości timeout na podstawie argumentu
     int timeout_val = atoi(argv[1]);
     start_time = time(NULL);
     end_time = start_time + timeout_val;
 
-    // SIGNALS
+    // --- SIGNAL HANDLERS ---
     struct sigaction sig1 = {0}, sig2 = {0};
 
+    // Ustawienie obsługi sygnału SIGUSR1
     sig1.sa_handler = SIGUSR1_handler;
     if(sigaction(SIGUSR1, &sig1, NULL) == -1)
     {
@@ -749,12 +757,15 @@ int main(int argc, char*argv[])
         exit(1);  // Zakończenie programu w przypadku błędu
     }
 
+    // Ustawienie obsługi sygnału SIGUSR2
     sig2.sa_handler = SIGUSR2_handler;
     if(sigaction(SIGUSR2, &sig2, NULL) == -1)
     {
         perror("[ERROR] Failed to set SIGUSR2 handler");
         exit(1);  // Zakończenie programu w przypadku błędu
     }
+
+    // --- INICJALIZACJA KOLEJEK ---
 
     // Kolejki dla boat1
     init_queue(&boat1_queue);
@@ -763,10 +774,11 @@ int main(int argc, char*argv[])
     // Kolejki dla boat2
     init_queue(&boat2_queue);
     init_queue(&boat2_skip_queue);
-    init_semaphores();
-    init_bridges();
 
-    // Usunięcie istniejącego gniazda
+    init_semaphores();  // Inicjalizacja semaforów
+    init_bridges();     // Inicjalizacja pomostów
+
+    // Usunięcie istniejącego gniazda, jeśli istnieje
     unlink(STERNIK_SOCKET_PATH);
 
     // Tworzenie gniazda do komunikacji
@@ -776,13 +788,13 @@ int main(int argc, char*argv[])
         perror("[STERNIK] Error creating socket");
         return 1;
     }
-    // Adres gniazda
+    // Przygotowanie adresu gniazda
     struct sockaddr_un server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sun_family = AF_UNIX;
     strncpy(server_addr.sun_path, STERNIK_SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
 
-    // Powiązanie gniazda
+    // Powiązanie gniazda z adresem
     if(bind(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
         perror("[STERNIK] Error binding socket");
@@ -790,7 +802,7 @@ int main(int argc, char*argv[])
         return 1;
     }
 
-    // Nasłuchiwanie połączeń
+    // Nasłuchiwanie połączeń przychodzących na gnieździe
     if(listen(sock_fd, 5) < 0)
     {
         perror("[STERNIK] Error listening on socket");
@@ -799,6 +811,7 @@ int main(int argc, char*argv[])
     }
     insta_print("[STERNIK] START (TIMEOUT = %ds).\n", timeout_val);
 
+    // Tworzenie wątków
     pthread_t thread1, thread2;
 
     if(pthread_create(&thread1, NULL, boat1_thread, NULL) != 0)
@@ -813,9 +826,10 @@ int main(int argc, char*argv[])
         return 1;
     }
 
+    // Pętla do przetwarzania żądań pasażerów
     while(!terminate_sternik)
     {
-        int client_sock_fd = accept(sock_fd, NULL, NULL);
+        int client_sock_fd = accept(sock_fd, NULL, NULL); // Akceptowanie połączenia klienta
         if(client_sock_fd < 0)
         {
             if (errno == EINTR)
@@ -831,16 +845,17 @@ int main(int argc, char*argv[])
         close(client_sock_fd);
     }
 
-
+    // Zatrzymanie obu łodzi
     pthread_mutex_lock(&m);
     boat1_active = 0;
     boat2_active = 0;
     pthread_mutex_unlock(&m);
     
-    //oczekiwanie na zakonczenie pracy watkow
+    // Czekanie na zakończenie pracy wątków
     pthread_join(thread1, NULL);
     pthread_join(thread2, NULL);
 
+    // Zamknięcie gniazda i zniszczenie semaforów
     close(sock_fd);
     sem_destroy(&boat1_sem);
     sem_destroy(&boat2_sem);

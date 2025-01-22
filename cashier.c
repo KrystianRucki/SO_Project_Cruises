@@ -6,8 +6,8 @@
 #include <errno.h>      // Definicja zmiennej errno
 #include <string.h>     // Funkcje do manipulacji łańcuchami, np. strncpy()
 
-#define CASHIER_SOCKET_PATH "/tmp/cashier_socket" // Ścieżka do gniazda domeny Unix
-#define MAX_PASSENGER_IDS 6000            // Maksymalna liczba identyfikatorów pasażerów
+#define CASHIER_SOCKET_PATH "/tmp/cashier_socket"   // Ścieżka do gniazda domeny Unix
+#define MAX_PASSENGER_IDS 6000                      // Maksymalna liczba identyfikatorów pasażerów
 
 // Tablica przechowująca informacje, czy pasażer o danym ID podróżował wcześniej
 static int has_traveled[MAX_PASSENGER_IDS] = {0};
@@ -47,7 +47,7 @@ static void process_request(int client_fd)
                     has_traveled[pid] = 1; // Oznaczenie, że pasażer już podróżował
                     if (age < 3)
                     {
-                        discount = 100; // Zniżka 100% dla dzieci poniżej 3 lat
+                        discount = 100; // Zniżka 100% - Dzieci poniżej 3 roku życia nie płacą za bilet
                     }
                 }
                 else
@@ -91,7 +91,8 @@ int main(void)
 
     // Tworzenie gniazda domeny Unix
     int server_fd = socket(AF_UNIX, SOCK_STREAM, 0); // socket typu strumieniowego, komunikacja na polaczeniach zamiast wysyłaniu pojedynczych wiadomości
-    if (server_fd < 0) {
+    if(server_fd < 0)
+    {
         perror("[CASHIER] Error creating socket"); // Obsługa błędu tworzenia gniazda
         return 1;
     }
@@ -102,7 +103,7 @@ int main(void)
     server_addr.sun_family = AF_UNIX;            // Ustawienie domeny gniazda na Unix, sun_family - rodzina adresow AF_UNIX
     strncpy(server_addr.sun_path, CASHIER_SOCKET_PATH, sizeof(server_addr.sun_path) - 1); // Ustawienie ścieżki gniazda
 
-    // Powiązanie gniazda z adresem - serwer laczy swoj socket z okreslana sciezka - inne procesy beda mogly sie połączyć z tym socketem
+    // Powiązanie gniazda z adresem - "serwer" łączy swój socket z określoną ścieżką - inne procesy beda mogly sie połączyć z tym socketem
     if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
         perror("[CASHIER] Error binding socket"); // Obsługa błędu wiązania
@@ -130,13 +131,13 @@ int main(void)
             continue; // Kontynuacja w przypadku błędu
         }
 
-        process_request(client_fd); // Przetwarzanie żądania od klienta, odczytuje dame z client_fd i wysyła odpowiedź
+        process_request(client_fd); // Przetwarzanie żądania od klienta, odczytuje dane z client_fd i wysyła odpowiedź
         close(client_fd);           // Zamknięcie połączenia z klientem
     }
 
     // Sprzątanie po zakończeniu działania
-    close(server_fd);      // Zamknięcie gniazda nasłuchującego
-    unlink(CASHIER_SOCKET_PATH);   // Usunięcie pliku gniazda
+    close(server_fd);               // Zamknięcie gniazda nasłuchującego
+    unlink(CASHIER_SOCKET_PATH);    // Usunięcie pliku gniazda
 
     printf("\033[38;5;10m[CASHIER] Service ended.\033[0m\n");
     return 0; // Zakończenie programu

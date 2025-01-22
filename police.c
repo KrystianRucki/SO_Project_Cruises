@@ -5,23 +5,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <time.h>
-#include <signal.h>
+#include <signal.h> // Obsługa sygnałów (kill, definicje SIGUSR1, SIGUSR2)
 #include <sys/types.h>
 
 int main(int argc, char *argv[])
 {
-    setbuf(stdout, NULL);
+    setbuf(stdout, NULL); // Wyłączenie buforowania stdout, aby komunikaty były natychmiast wyświetlane
 
+    // Sprawdzenie, czy podano wymagane argumenty
     if (argc<2)
     {
         fprintf(stderr, "[POLICE] USED: %s [pid_sternika]\n", argv[0]);
         return 1;
     }
-    pid_t pid_sternik = atoi(argv[1]);
+    pid_t pid_sternik = atoi(argv[1]);  // Konwersja argumentu tekstowego na liczbę (PID sternika)
     printf("\033[1;38;5;9m[POLICE] TARGET: pid sternika = %d\033[0m\n", pid_sternik);
-
-    srand(time(NULL));
 
     //Wyslij signal SIGUSR1
     printf("\033[1;38;5;9m[POLICE] SIGUSR1 => BOAT1\033[0m\n");
