@@ -193,7 +193,6 @@ static void do_passenger_job(int pid, int age, int group)
         pid_pass[passenger_count++] = pc;
         printf("[SCHEDULER] Passenger pid = %d age = %d group = %d => processPID = %d.\n", pid, age, group, pc); //pid z generatora, processPID - rzeczywisty pid procesu z forka
         total_gen_pass++;
-        // usleep(200000);
     }
     else
     {
@@ -582,7 +581,6 @@ int main()
 
     cleanup();
     
-    //mechanizm ktory zapewni ze passengers nie zglosza sie do cashier przed jego utworzeniem - zamiast usleep
     start_sternik();
     usleep(200000);
     start_cashier();

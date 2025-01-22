@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
             // Jeśli gniazdo jeszcze nie istnieje (ENOENT), próba połączenia zostanie ponowiona
             fprintf(stderr, "[PASSENGER] Error connecting to cashier socket: %s. Retrying...\n", strerror(errno));
             retries++;
-            sleep(RETRY_DELAY); // Oczekiwanie przed kolejną próbą
+            sleep(RETRY_DELAY); // Oczekiwanie przed kolejną próbą, jeśli nie uda się podłączyć to może znaczyć że kasjer już przestał działać nie obsługuje pasażerów
         }
         else
         {
