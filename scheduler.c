@@ -480,7 +480,7 @@ void end_sim()
     }
 
     cleanup();
-    printf("[SCHEDULER] end_sim => FINISHED.\n");
+    printf("\033[1;38;5;10m[SCHEDULER] end_sim => FINISHED.\033[0m\n");
 }
 
 // --- Uruchomienie sternika ---
@@ -553,7 +553,7 @@ int main()
 {
     setbuf(stdout, NULL); //wylaczanie buforowania dla standardowego wyjscia (stdout)
     system("clear");
-    printf("                 __/\\__\n               /~~~~~~/\n           ~~~~~~~~~~~\n        ~~~~~~~~~~~~~\t\t\t  CRUISES\n      ~~~~~~~~~~~~~~~~\n       ~~~~~~~~~~~~~~~~~\n              | _ |\n              | _ |\n        |=================|\n\n");
+    printf("\033[1;38;5;15m                 __/\\__\n               /~~~~~~/\n           ~~~~~~~~~~~\n        ~~~~~~~~~~~~~\033[4;1;38;5;15m\t\t\tCRUISES\033[0m\n\033[1;38;5;15m      ~~~~~~~~~~~~~~~~\n       ~~~~~~~~~~~~~~~~~\n              | _ |\n              | _ |\n        \033[1;38;5;130m|=================|\033[0m\n\n");
     
     //Pytanie usera o czas symulacji
     int user_timeout = 0;

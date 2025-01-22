@@ -416,7 +416,7 @@ void *boat1_thread(void *arg)
                         leave_bridge1();
                         rejsStruct[rejsCount++] = p; //dodajemy go do struktury rejsu
                         onboarded++;
-                        insta_print("[BOAT1] Passenger %d (discount:%d%%) entered [%d/%d]\n", p.pid, p.discount, onboarded, N1);
+                        insta_print("\033[1;38;5;14m[BOAT1] \033[38;5;15mPassenger %d (discount:%d%%) \033[38;5;10mentered [%d/%d]\033[0m\n", p.pid, p.discount, onboarded, N1);
                     }
                 }
                 else
@@ -480,7 +480,7 @@ void *boat1_thread(void *arg)
 
         //mozna wyplynac
         boat1_cruising = 1;
-        insta_print("[BOAT1] Departing with %d passengers.\n", rejsCount);
+        insta_print("\033[1;38;5;14m[BOAT1] \033[38;5;10mDeparting with \033[1;38;5;15m%d\033[38;5;15m passengers.\033[0m\n", rejsCount);
         pthread_mutex_unlock(&m);
 
         sleep(T1); //symulacja rejsu
@@ -488,7 +488,7 @@ void *boat1_thread(void *arg)
         //wracamy z rejsu, OUTGOING - nalezy wyladowac pasazerow
         pthread_mutex_lock(&m);
         boat1_cruising = 0;
-        insta_print("[BOAT1] Cruise finished => OUTGOING.\n"); //ruch wychodzacy (offboarding)
+        insta_print("[BOAT1] Cruise finished => offboarding.\n"); //ruch wychodzacy (offboarding)
         begin_outgoing1();
         insta_print("[BOAT1] Passengers left.\n");
         end_outgoing1();
@@ -594,7 +594,7 @@ void *boat2_thread(void *arg)
                         group_count[p.group]++; 
                         rejsStruct[rejsCount++] = p;
                         onboarded++;
-                        insta_print("[BOAT2] Passenger %d (discount:%d%% group:%d) entered [%d/%d]\n", p.pid, p.discount, p.group, onboarded, N2);
+                        insta_print("\033[1;38;5;33m[BOAT2] \033[38;5;15mPassenger %d (discount:%d%% group:%d) \033[38;5;10mentered [%d/%d]\033[0m\n", p.pid, p.discount, p.group, onboarded, N2);
                     }
                 }
                 else
@@ -694,7 +694,7 @@ void *boat2_thread(void *arg)
 
         //mozna wyplynac
         boat2_cruising = 1;
-        insta_print("[BOAT2] Departing with %d passengers.\n", rejsCount);
+        insta_print("\033[1;38;5;33m[BOAT2] \033[38;5;10mDeparting with \033[1;38;5;15m%d\033[38;5;15m passengers.\033[0m\n", rejsCount);
         pthread_mutex_unlock(&m);
 
         sleep(T2); //symulacja rejsu
@@ -702,7 +702,7 @@ void *boat2_thread(void *arg)
         //wracamy z rejsu, OUTGOING - nalezy wyladowac pasazerow
         pthread_mutex_lock(&m);
         boat2_cruising = 0;
-        insta_print("[BOAT2] Cruise finished => OUTGOING.\n");
+        insta_print("[BOAT2] Cruise finished => offboarding.\n");
         begin_outgoing2();
         insta_print("[BOAT2] Passengers left.\n");
         end_outgoing2();
@@ -797,7 +797,7 @@ int main(int argc, char*argv[])
         close(sock_fd);
         return 1;
     }
-    insta_print("[STERNIK] START (TIMEOUT = %d).\n", timeout_val);
+    insta_print("[STERNIK] START (TIMEOUT = %ds).\n", timeout_val);
 
     pthread_t thread1, thread2;
 
@@ -806,7 +806,7 @@ int main(int argc, char*argv[])
         perror("pthread_create boat1_thread failed");
         return 1;
     }
-    
+
     if(pthread_create(&thread2, NULL, boat2_thread, NULL) != 0)
     {
         perror("pthread_create boat2_thread failed");
@@ -844,7 +844,7 @@ int main(int argc, char*argv[])
     close(sock_fd);
     sem_destroy(&boat1_sem);
     sem_destroy(&boat2_sem);
-    insta_print("[STERNIK] Service ended.\n");
+    insta_print("\033[38;5;10m[STERNIK] Service ended.\033[0m\n");
 
     return 0;
 }

@@ -19,16 +19,16 @@ int main(int argc, char *argv[])
         return 1;
     }
     pid_t pid_sternik = atoi(argv[1]);
-    printf("[POLICE] TARGET: pid sternika = %d\n", pid_sternik);
+    printf("\033[1;38;5;9m[POLICE] TARGET: pid sternika = %d\033[0m\n", pid_sternik);
 
     srand(time(NULL));
 
     //Wyslij signal SIGUSR1
-    printf("[POLICE] SIGUSR1 => BOAT1\n");
+    printf("\033[1;38;5;9m[POLICE] SIGUSR1 => BOAT1\033[0m\n");
     kill(pid_sternik, SIGUSR1);
 
     //Wyslij signal SIGUSR2
-    printf("[POLICE] SIGUSR2 => BOAT2\n");
+    printf("\033[1;38;5;9m[POLICE] SIGUSR2 => BOAT2\033[0m\n");
     kill(pid_sternik, SIGUSR2);
 
     printf("[POLICE] END\n");

@@ -138,6 +138,6 @@ int main(void)
     close(server_fd);      // Zamknięcie gniazda nasłuchującego
     unlink(CASHIER_SOCKET_PATH);   // Usunięcie pliku gniazda
 
-    printf("[CASHIER] Service ended.\n");
+    printf("\033[38;5;10m[CASHIER] Service ended.\033[0m\n");
     return 0; // Zakończenie programu
 }

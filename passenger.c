@@ -152,7 +152,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    printf("[PASSENGER %d] Sent to sternik: %s", pid, request_buffer);
+    printf("[PASSENGER %d] Sent to sternik (pid, age, discount, group): %s", pid, request_buffer);
 
     close(sternik_sock_fd); // Zamknięcie gniazda
 
