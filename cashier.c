@@ -84,7 +84,7 @@ static void process_request(int client_fd)
 
 
 // --- Główna funkcja programu kasjera. ---
-int main(void)
+int main()
 {
     // Usuwanie poprzedniego gniazda, jeśli istnieje
     unlink(CASHIER_SOCKET_PATH);

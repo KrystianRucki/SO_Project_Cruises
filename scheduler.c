@@ -334,7 +334,7 @@ void *generator_function(void *arg)
     return NULL;
 }
 
-
+// Funkcja wątku timeout_killer_thread do kończenia symulacji po upływie podanego czasu
 void *time_killer_function(void *arg)
 {
     time_t start_time, current_time;
