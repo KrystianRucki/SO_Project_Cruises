@@ -202,11 +202,34 @@ static void do_passenger_job(int pid, int age, int group)
         perror("[SCHEDULER] execv passenger error");
         _exit(1); // natychmiast kończymy proces potomny
     }
-    else if (pc > 0) // Kod wykonywany w procesie macierzystym
+    else if(pc > 0) // Kod wykonywany w procesie macierzystym
     {
         pid_pass[passenger_count++] = pc;  // Zapisanie PID procesu potomnego w tablicy i aktualizacja licznika pasażerów
         printf("[SCHEDULER] Passenger pid = %d age = %d group = %d => processPID = %d.\n", pid, age, group, pc); // pid: ID pasażera, processPID: PID procesu
         total_gen_pass++; // Zwiększenie licznika wygenerowanych pasażerów
+
+        // Czekanie na zakończenie procesu potomnego
+        int status;
+        pid_t finished_pid = waitpid(pc, &status, 0); // Czekanie na zakończenie tego konkretnego procesu
+        if(finished_pid > 0)
+        {
+            if(WIFEXITED(status))
+            {
+                printf("[SCHEDULER] Passenger with PID %d finished with status %d.\n", finished_pid, WEXITSTATUS(status));
+            }
+            else if(WIFSIGNALED(status))
+            {
+                printf("[SCHEDULER] Passenger with PID %d was terminated by signal %d.\n", finished_pid, WTERMSIG(status));
+            }
+            else
+            {
+                printf("[SCHEDULER] Unknown termination reason for PID %d.\n", finished_pid);
+            }
+        }
+        else
+        {
+            perror("[SCHEDULER] waitpid error");
+        }
     }
     else
     {
