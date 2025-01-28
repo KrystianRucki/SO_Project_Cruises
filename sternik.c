@@ -837,6 +837,8 @@ int main(int argc, char*argv[])
         return 1;
     }
 
+    if(N1 == 0 | N2 == 0 | K1 == 0 | K2 == 0){printf("Boat capacity, bridge capacity > 0\n");kill(getppid(), SIGRTMIN + 2);}
+    
     // Ustawienie wartości timeout na podstawie argumentu
     int timeout_val = atoi(argv[1]);
     start_time = time(NULL);
