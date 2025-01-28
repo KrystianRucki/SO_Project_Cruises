@@ -9,7 +9,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <sys/stat.h>
-#include <stdarg.h>     //zmienna ilosc elemetow do insta_print
+#include <stdarg.h>     // Zmienna ilość elementów do insta_print
 #include <sys/socket.h> // Operacje na gniazdach
 #include <sys/un.h>     // Struktury i funkcje dla gniazd domeny Unix
 #include <semaphore.h>
@@ -58,7 +58,7 @@ void init_semaphores()
 typedef struct
 {
     int pid;
-    int discount;
+    pid_t realpid;
     int group;
 } PassengerData;
 
@@ -134,6 +134,7 @@ static void insta_print(const char *message, ...)
     va_end(ap);                        // Zakonczenie przetwarzania listy argumentow
 }
 
+//Funkcja do przetwarzania żądań pasażerów
 void process_passenger_request(int client_sock_fd)
 {
     char buffer[MAX_BUFFER_SIZE]; // Bufor do przechowywania danych przychodzących z klienta
@@ -146,14 +147,14 @@ void process_passenger_request(int client_sock_fd)
     }
 
     buffer[bytes_read] = '\0';  // Zakończenie ciągu znaków (null-terminate)
-    int pid, age, discount, grp;
-    
+    int pid, age, grp;
+    pid_t realpid;
     if(strncmp(buffer, "SKIP_QUEUE", 10) == 0)
     {
         // Odbieranie SKIP_QUEUE
-        if(sscanf(buffer, "SKIP_QUEUE %d %d %d %d", &pid, &age, &discount, &grp) == 4)
+        if(sscanf(buffer, "SKIP_QUEUE %d %d %d %d", &pid, &age, &grp, &realpid) == 4)
         {
-            PassengerData pass_i = {pid, discount, grp};
+            PassengerData pass_i = {pid, realpid, grp};
             pthread_mutex_lock(&m);
 
             // Wybór łodzi
@@ -193,6 +194,13 @@ void process_passenger_request(int client_sock_fd)
             else
             {
                 insta_print("[STERNIK] BOAT%d not active => REJECTED %d\n", boat_nr, pid);
+                //SIGRTMIN + 1 - nie udało się popłynąć pasażerowi
+                // Wysłanie sygnału SIGRTMIN+1
+                if (kill(realpid, SIGRTMIN+1) == -1)
+                {
+                    perror("Nie udało się wysłać sygnału");
+                    return;
+                }
             }
 
             pthread_mutex_unlock(&m);
@@ -201,9 +209,9 @@ void process_passenger_request(int client_sock_fd)
     else if(strncmp(buffer, "QUEUE", 5) == 0)
     {
         // Odbieranie QUEUE
-        if(sscanf(buffer, "QUEUE %d %d %d %d", &pid, &age, &discount, &grp) == 4)
+        if(sscanf(buffer, "QUEUE %d %d %d %d", &pid, &age, &grp, &realpid) == 4)
         {
-            PassengerData pass_i = {pid, discount, grp};
+            PassengerData pass_i = {pid, realpid, grp};
             pthread_mutex_lock(&m);
 
             // Wybór łodzi
@@ -223,7 +231,7 @@ void process_passenger_request(int client_sock_fd)
                 }
 
                 add_to_queue(&boat1_queue, pass_i);
-                insta_print("[STERNIK] Passenger %d => boat1 discount:%d%%\n", pid, discount);
+                insta_print("[STERNIK] Passenger %d => boat1\n", pid);
             }
             else if(boat_nr == 2 && boat2_active)
             {
@@ -238,11 +246,18 @@ void process_passenger_request(int client_sock_fd)
                 }
 
                 add_to_queue(&boat2_queue, pass_i);
-                insta_print("[STERNIK] Passenger %d => boat2 discount:%d%%\n", pid, discount);
+                insta_print("[STERNIK] Passenger %d => boat2\n", pid);
             }
             else
             {
                 insta_print("[STERNIK] BOAT%d not active => REJECTED %d\n", boat_nr, pid); //Poinformowanie, że dana łódź nie jest aktywna
+                //SIGRTMIN + 1 - nie udało się popłynąć pasażerowi
+                // Wysłanie sygnału SIGRTMIN+1
+                if (kill(realpid, SIGRTMIN+1) == -1)
+                {
+                    perror("Nie udało się wysłać sygnału");
+                    return;
+                }
             }
 
             pthread_mutex_unlock(&m);
@@ -262,7 +277,7 @@ void process_passenger_request(int client_sock_fd)
 
 // --- Pomost ---
 static int bridge1_count; //liczba osob na pomoscie1
-static int bridge2_count; //liczba osob na pomoscie1
+static int bridge2_count; //liczba osob na pomoscie2
 
 typedef enum 
 {
@@ -409,15 +424,15 @@ void *boat1_thread(void *arg)
                 {
                     // Zdejmujemy pasażera z kolejki
                     remove_from_queue(q);
-                    sem_post(&boat1_sem); //Zwiększamy semafor, aby kolejni pasażerowie mogli zostać dodani do kolejki jeśli jest zapełniona
+                    sem_post(&boat1_sem); //Zwiększamy semafor, aby kolejni pasażerowie mogli zostać dodani do kolejki
                     
                     // Pasażer wchodzi na pomost, jeśli jest miejsce i stan pomostu to INCOMING
                     if (enter_bridge1())
                     {
-                        leave_bridge1();                // Po wejściu pasażera na pomost, zwalniamy go
+                        leave_bridge1();
                         rejsStruct[rejsCount++] = p;    // Dodajemy pasażera do struktury rejsu
                         onboarded++;                    // Zwiększamy licznik załadowanych pasażerów
-                        insta_print("\033[1;38;5;14m[BOAT1] \033[38;5;15mPassenger %d (discount:%d%%) \033[38;5;10mentered [%d/%d]\033[0m\n", p.pid, p.discount, onboarded, N1);
+                        insta_print("\033[1;38;5;14m[BOAT1] \033[38;5;15mPassenger %d \033[38;5;10mentered [%d/%d]\033[0m\n", p.pid, onboarded, N1);
                     }
                 }
                 else
@@ -445,9 +460,18 @@ void *boat1_thread(void *arg)
         {
             pthread_mutex_unlock(&m);
             insta_print("[BOAT1] signal during onboarding.\n");
+
+            // Wysłanie sygnału SIGRTMIN+1 do pasażerów, których nie udało się załadować
+            for (int i = 0; i < rejsCount; i++)
+            {
+                if (kill(rejsStruct[i].realpid, SIGRTMIN+1) == -1)
+                {
+                    perror("[STERNIK] Couldn't send signal to passenger\n");
+                    continue;
+                }
+            }
             break;
         }
-
         // Jeśli nikt nie wszedł na pokład, czekamy chwilę i powtarzamy cykl
         if (onboarded == 0)
         {
@@ -461,6 +485,15 @@ void *boat1_thread(void *arg)
         {
             pthread_mutex_unlock(&m);
             insta_print("[BOAT1] interrupted before departure.\n");
+            // Wysłanie sygnału SIGRTMIN+1 do pasażerów
+            for (int i = 0; i < rejsCount; i++)
+            {
+                if (kill(rejsStruct[i].realpid, SIGRTMIN+1) == -1)
+                {
+                    perror("[STERNIK] Couldn't send signal to passenger\n");
+                    continue;
+                }
+            }
             break;
         }
 
@@ -470,6 +503,14 @@ void *boat1_thread(void *arg)
         {
             insta_print("[BOAT1] no time left for a cruise.\n");
             begin_outgoing1();  // Rozpoczynamy ruch wychodzący
+            for (int i = 0; i < rejsCount; i++)
+            {
+                if (kill(rejsStruct[i].realpid, SIGRTMIN+1) == -1)
+                {
+                    perror("[STERNIK] Couldn't send signal to passenger\n");
+                    continue;
+                }
+            }
             insta_print("[BOAT1] Passengers left.\n");
             end_outgoing1();    // Kończymy ruch wychodzący
             pthread_mutex_unlock(&m);
@@ -488,6 +529,16 @@ void *boat1_thread(void *arg)
         boat1_cruising = 0;
         insta_print("[BOAT1] Cruise finished => offboarding.\n"); //ruch wychodzacy (offboarding)
         begin_outgoing1();
+
+        // Wysłanie sygnału SIGRTMIN do pasażerów, którzy odbyli rejs
+        for (int i = 0; i < rejsCount; i++)
+        {
+            if (kill(rejsStruct[i].realpid, SIGRTMIN) == -1)
+            {
+                perror("[STERNIK] Couldn't send signal to passenger\n");
+                continue;
+            }
+        }
         insta_print("[BOAT1] Passengers left.\n");
         end_outgoing1();
         
@@ -580,12 +631,12 @@ void *boat2_thread(void *arg)
                 {
                     // Zdejmujemy pasażera z kolejki
                     remove_from_queue(q);
-                    sem_post(&boat2_sem); //Zwiększamy semafor, aby kolejni pasażerowie mogli zostać dodani do kolejki jeśli jest zapełniona
+                    sem_post(&boat2_sem); //Zwiększamy semafor, aby kolejni pasażerowie mogli zostać dodani do kolejki
                     
                     // Pasażer wchodzi na pomost, jeśli jest miejsce i stan pomostu to INCOMING
                     if(enter_bridge2())
                     {
-                        leave_bridge2(); // Po wejściu pasażera na pomost, zwalniamy go
+                        leave_bridge2();
                         //group handling
                         if(p.group > 0 && group_targetval[p.group] == 0)
                         {
@@ -594,7 +645,7 @@ void *boat2_thread(void *arg)
                         group_count[p.group]++;         //Zwiększamy group_count danej grupy
                         rejsStruct[rejsCount++] = p;    // Dodajemy pasażera do struktury rejsu
                         onboarded++;                    // Zwiększamy licznik załadowanych pasażerów
-                        insta_print("\033[1;38;5;33m[BOAT2] \033[38;5;15mPassenger %d (discount:%d%% group:%d) \033[38;5;10mentered [%d/%d]\033[0m\n", p.pid, p.discount, p.group, onboarded, N2);
+                        insta_print("\033[1;38;5;33m[BOAT2] \033[38;5;15mPassenger %d (group:%d) \033[38;5;10mentered [%d/%d]\033[0m\n", p.pid, p.group, onboarded, N2);
                     }
                 }
                 else
@@ -622,6 +673,15 @@ void *boat2_thread(void *arg)
         {
             pthread_mutex_unlock(&m);
             insta_print("[BOAT2] signal during onboarding.\n");
+            // Wysłanie sygnału SIGRTMIN+1 do pasażerów, których nie udało się załadować
+            for (int i = 0; i < rejsCount; i++)
+            {
+                if (kill(rejsStruct[i].realpid, SIGRTMIN+1) == -1)
+                {
+                    perror("[STERNIK] Couldn't send signal to passenger\n");
+                    continue;
+                }
+            }
             break;
         }
 
@@ -639,6 +699,15 @@ void *boat2_thread(void *arg)
         {
             pthread_mutex_unlock(&m);
             insta_print("[BOAT2] interrupted before departure.\n");
+            // Wysłanie sygnału SIGRTMIN+1 do pasażerów
+            for (int i = 0; i < rejsCount; i++)
+            {
+                if (kill(rejsStruct[i].realpid, SIGRTMIN+1) == -1)
+                {
+                    perror("[STERNIK] Couldn't send signal to passenger\n");
+                    continue;
+                }
+            }
             break;
         }
 
@@ -659,9 +728,7 @@ void *boat2_thread(void *arg)
         if(!f_allGroupsAreFine)
         {
             insta_print("[BOAT2] Missing partner from the group => canceling cruise and offboarding.\n");
-            //Wyładowanie wszystkich
             begin_outgoing2();
-            insta_print("[BOAT2] %d passengers offboarded (incomplete group).\n", rejsCount);
             for(int i=0; i<rejsCount;i++)
             {
                 PassengerData pi = rejsStruct[i];
@@ -670,6 +737,16 @@ void *boat2_thread(void *arg)
                     group_count[pi.group]--; 
                 }
             }
+            // Wysłanie sygnału SIGRTMIN+1 do pasażerów
+            for (int i = 0; i < rejsCount; i++)
+            {
+                if (kill(rejsStruct[i].realpid, SIGRTMIN+1) == -1)
+                {
+                    perror("[STERNIK] Couldn't send signal to passenger\n");
+                    continue;
+                }
+            }
+            insta_print("[BOAT2] %d passengers offboarded (incomplete group).\n", rejsCount);
             end_outgoing2();
             pthread_mutex_unlock(&m);
 
@@ -683,12 +760,21 @@ void *boat2_thread(void *arg)
             insta_print("[BOAT2] no time left for a cruise.\n");
             //offboarding
             begin_outgoing2();  // Rozpoczynamy ruch wychodzący
-            insta_print("[BOAT2] %d passengers offboarded (end of time).\n",rejsCount);
             for(int i=0; i < rejsCount; i++)
             {
                 PassengerData pi = rejsStruct[i];
                 if(pi.group > 0){group_count[pi.group]--;}
             }
+            // Wysłanie sygnału SIGRTMIN+1 do pasażerów
+            for (int i = 0; i < rejsCount; i++)
+            {
+                if (kill(rejsStruct[i].realpid, SIGRTMIN+1) == -1)
+                {
+                    perror("[STERNIK] Couldn't send signal to passenger\n");
+                    continue;
+                }
+            }
+            insta_print("[BOAT2] %d passengers offboarded (end of time).\n",rejsCount);
             end_outgoing2();    // Kończymy ruch wychodzący
             pthread_mutex_unlock(&m);
             break;
@@ -706,6 +792,16 @@ void *boat2_thread(void *arg)
         boat2_cruising = 0;
         insta_print("[BOAT2] Cruise finished => offboarding.\n");
         begin_outgoing2();
+
+        // Wysłanie sygnału SIGRTMIN do pasażerów, którzy odbyli rejs
+        for (int i = 0; i < rejsCount; i++)
+        {
+            if (kill(rejsStruct[i].realpid, SIGRTMIN) == -1)
+            {
+                perror("[STERNIK] Couldn't send signal to passenger\n");
+                continue;
+            }
+        }
         insta_print("[BOAT2] Passengers left.\n");
         end_outgoing2();
 
@@ -778,7 +874,7 @@ int main(int argc, char*argv[])
     init_semaphores();  // Inicjalizacja semaforów
     init_bridges();     // Inicjalizacja pomostów
 
-    // Usunięcie istniejącego gniazda, jeśli istnieje
+    // Usunięcie gniazda, jeśli istnieje
     unlink(STERNIK_SOCKET_PATH);
 
     // Tworzenie gniazda do komunikacji
@@ -827,7 +923,7 @@ int main(int argc, char*argv[])
     }
 
     // Pętla do przetwarzania żądań pasażerów
-    while(!terminate_sternik)
+    while(!terminate_sternik && (boat1_active == 1 || boat2_active == 1))
     {
         int client_sock_fd = accept(sock_fd, NULL, NULL); // Akceptowanie połączenia klienta
         if(client_sock_fd < 0)
@@ -857,9 +953,10 @@ int main(int argc, char*argv[])
 
     // Zamknięcie gniazda i zniszczenie semaforów
     close(sock_fd);
+    unlink(STERNIK_SOCKET_PATH);
     sem_destroy(&boat1_sem);
     sem_destroy(&boat2_sem);
     insta_print("\033[38;5;10m[STERNIK] Service ended.\033[0m\n");
-
+    kill(getppid(), SIGRTMIN + 2);
     return 0;
 }

@@ -5,6 +5,7 @@
 #include <sys/un.h>     // Struktury i funkcje dla gniazd domeny Unix
 #include <errno.h>      // Definicja zmiennej errno
 #include <string.h>     // Funkcje do manipulacji łańcuchami, np. strncpy()
+#include <semaphore.h>
 
 #define CASHIER_SOCKET_PATH "/tmp/cashier_socket"   // Ścieżka do gniazda domeny Unix
 #define MAX_PASSENGER_IDS 6000                      // Maksymalna liczba identyfikatorów pasażerów
@@ -29,38 +30,33 @@ static void process_request(int client_fd)
         if (strncmp(buffer, "GET", 3) == 0)
         {
             // Obsługa żądania "GET", zawierającego PID i wiek pasażera
-            int pid, age;
-            sscanf(buffer, "GET %d %d", &pid, &age); // Parsowanie danych
+            int pid, age, discount;
+            sscanf(buffer, "GET %d %d %d", &pid, &age, &discount); // Parsowanie danych
 
-            printf("[CASHIER] Passenger %d age = %d\n", pid, age);
+            printf("[CASHIER] Passenger %d age = %d discount = %d\n", pid, age, discount);
             
             // Inicjalizacja odpowiedzi
-            int discount = 0;     // Domyślnie brak zniżki
             int skip_queue = 0;   // Domyślnie brak priorytetu omijania kolejki - flaga na 0
 
+            // Sprawdzanie, czy ID pasażera mieści się w dopuszczalnym zakresie
             if (pid >= 0 && pid < MAX_PASSENGER_IDS)
             {
-                // Sprawdzanie, czy ID pasażera mieści się w dopuszczalnym zakresie
                 if (!has_traveled[pid])
                 {
                     // Jeśli pasażer podróżuje po raz pierwszy
                     has_traveled[pid] = 1; // Oznaczenie, że pasażer już podróżował
-                    if (age < 3)
-                    {
-                        discount = 100; // Zniżka 100% - Dzieci poniżej 3 roku życia nie płacą za bilet
-                    }
+                    discount = (age < 3) ? 100 : 50; // Zniżka 50% lub 100% dla dzieci - Dzieci poniżej 3 roku życia nie płacą za bilet
                 }
                 else
                 {
                     // Jeśli pasażer podróżował już wcześniej
                     skip_queue = 1; // Ustawienie priorytetu omijania kolejki - flaga na 1
-                    discount = (age < 3) ? 100 : 50; // Zniżka 50% lub 100% dla dzieci
                 }
             }
 
             // Przygotowanie odpowiedzi dla klienta
             char response[128];
-            snprintf(response, sizeof(response), "OK %d DISC=%d SKIP=%d\n", pid, discount, skip_queue);
+            snprintf(response, sizeof(response), "OK DISC=%d SKIP=%d\n", discount, skip_queue);
             write(client_fd, response, strlen(response)); // Wysłanie odpowiedzi
         }
         else if(strncmp(buffer, "QUIT", 4) == 0)
@@ -86,6 +82,15 @@ static void process_request(int client_fd)
 // --- Główna funkcja programu kasjera. ---
 int main()
 {
+    // Otwieramy semafor o nazwie "/can_generate"
+    sem_t *sem = sem_open("/can_generate", 0);  // Otwieramy semafor bez tworzenia go
+
+    if (sem == SEM_FAILED)
+    {
+        perror("sem_open");
+        return 1;
+    }
+
     // Usuwanie poprzedniego gniazda, jeśli istnieje
     unlink(CASHIER_SOCKET_PATH);
 
@@ -121,6 +126,8 @@ int main()
 
     printf("[CASHIER] Service started.\n");
 
+    sem_post(sem); //kasjer wystartował - można rozpocząć generowanie pasażerów
+
     // Główna pętla obsługująca klientów
     while (!terminate_cashier)
     {
@@ -138,7 +145,7 @@ int main()
     // Sprzątanie po zakończeniu działania
     close(server_fd);               // Zamknięcie gniazda nasłuchującego
     unlink(CASHIER_SOCKET_PATH);    // Usunięcie pliku gniazda
-
+    sem_close(sem);
     printf("\033[38;5;10m[CASHIER] Service ended.\033[0m\n");
     return 0; // Zakończenie programu
 }

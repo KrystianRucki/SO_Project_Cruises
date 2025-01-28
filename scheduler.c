@@ -19,6 +19,7 @@ scheduler.c
 #include <sys/select.h>
 #include <sys/socket.h> // Operacje na gniazdach
 #include <sys/un.h>     // Struktury i funkcje dla gniazd domeny Unix
+#include <semaphore.h>
 
 // --- Sciezki do plikow ---
 #define PATH_CASHIER   "./cashier"
@@ -29,6 +30,9 @@ scheduler.c
 // --- Sockety ---
 #define CASHIER_SOCKET_PATH "/tmp/cashier_socket" // Ścieżka do gniazda komunikacyjnego używanego przez kasjera
 #define STERNIK_SOCKET_PATH "/tmp/sternik_socket" // Ścieżka do gniazda komunikacyjnego używanego przez sternika
+
+// --- Semafor współdzielony z cashier.c ---
+sem_t *sem; // Używany aby zapobiec sytuacji gdzie generator zaczyna generować pasażerów, a kasjer jeszcze nie rozpoczął przetwarzania żądań pasażerów
 
 // --- Maksymalna ilosc pasazerow ---
 #define MAX_PASS 120
@@ -58,6 +62,58 @@ static pthread_t timeout_killer_thread;     // Identyfikator wątku kończącego
 static volatile int gen_running_flag = 1;   // Flaga sterująca pracą generatora. Wartość 1 oznacza, że generator jest aktywny.
 
 // --- Funkcje ---
+void end_sim();
+
+// Funkcja obsługująca sygnał SIGCHLD
+void handle_sigchld(int sig)
+{
+    pid_t finished_pid;
+
+    // Obsługa wszystkich zakończonych procesów
+    while ((finished_pid = waitpid(-1, NULL, WNOHANG)) > 0){}
+
+    if (finished_pid == -1 && errno != ECHILD)
+    {
+        perror("[SCHEDULER] waitpid error in SIGCHLD handler");
+    }
+}
+
+// Funkcja obsługująca sygnał SIGRTMIN + 2
+void handle_sigrtmin2(){end_sim();}
+
+// Funkcja konfiguracyjna dla sygnału SIGCHLD
+void setup_sigchld_handler()
+{
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_sigchld;
+    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP; // Restartuj wywołania systemowe i ignoruj zatrzymania potomnych
+
+    if (sigaction(SIGCHLD, &sa, NULL) == -1)
+    {
+        perror("[SCHEDULER] sigaction error");
+        exit(1);
+    }
+}
+
+// Funkcja konfiguracyjna dla sygnału SIGRTMIN + 2
+void setup_sigrtmin2_handler()
+{
+    // Zarejestrowanie handlera dla sygnału SIGRTMIN + 2
+    struct sigaction sa2;
+    memset(&sa2, 0, sizeof(sa2));
+    sa2.sa_handler = handle_sigrtmin2;
+    sa2.sa_flags = 0;
+    sigemptyset(&sa2.sa_mask);  // Nie blokuj żadnych innych sygnałów
+
+    if (sigaction(SIGRTMIN + 2, &sa2, NULL) == -1)
+    {
+        perror("[SCHEDULER] sigaction error");
+        exit(1);
+    }
+}
+
+
 // Funkcja wysyłająca komendę QUIT do kasjera
 void send_quit_to_cashier()
 {
@@ -147,8 +203,6 @@ void send_quit_to_sternik()
 }
 
 
-void end_sim();
-
 // --- Funkcja do_child_job ---
 // Funkcja tworzy nowy proces potomny, który wykonuje podane polecenie przy użyciu execv.
 // Parametry:
@@ -200,36 +254,13 @@ static void do_passenger_job(int pid, int age, int group)
         //Uruchomienie programu pasażera z podanymi argumentami
         execv(PATH_PASSENGER, arguments);
         perror("[SCHEDULER] execv passenger error");
-        _exit(1); // natychmiast kończymy proces potomny
+        _exit(1); // natychmiast kończymy proces potomny w przypadku błędu
     }
-    else if(pc > 0) // Kod wykonywany w procesie macierzystym
+    else if (pc > 0) // Kod wykonywany w procesie macierzystym
     {
         pid_pass[passenger_count++] = pc;  // Zapisanie PID procesu potomnego w tablicy i aktualizacja licznika pasażerów
         printf("[SCHEDULER] Passenger pid = %d age = %d group = %d => processPID = %d.\n", pid, age, group, pc); // pid: ID pasażera, processPID: PID procesu
         total_gen_pass++; // Zwiększenie licznika wygenerowanych pasażerów
-
-        // Czekanie na zakończenie procesu potomnego
-        int status;
-        pid_t finished_pid = waitpid(pc, &status, 0); // Czekanie na zakończenie tego konkretnego procesu
-        if(finished_pid > 0)
-        {
-            if(WIFEXITED(status))
-            {
-                printf("[SCHEDULER] Passenger with PID %d finished with status %d.\n", finished_pid, WEXITSTATUS(status));
-            }
-            else if(WIFSIGNALED(status))
-            {
-                printf("[SCHEDULER] Passenger with PID %d was terminated by signal %d.\n", finished_pid, WTERMSIG(status));
-            }
-            else
-            {
-                printf("[SCHEDULER] Unknown termination reason for PID %d.\n", finished_pid);
-            }
-        }
-        else
-        {
-            perror("[SCHEDULER] waitpid error");
-        }
     }
     else
     {
@@ -241,16 +272,16 @@ static void do_passenger_job(int pid, int age, int group)
 // --- Funkcja dla generatora pasazerow (generator_thread) ---
 void *generator_function(void *arg)
 {
+    sem_wait(sem); //czekaj na start przetwarzania żądań przez kasjera -> wtedy możesz zacząć generować
     srand(time(NULL) + getpid());
-    //obecny ulimit -u = 15362
-    static int used_pids[6000]; // Kontrola unikalnych PIDow, mechanizm do losowania powracajacych pasazerow
+
     static int used_count = 0;  // Licznik użytych PIDów
     int origin_pid = 1000;      // Pierwszy/bazowy PID, od którego zaczynają się identyfikatory pasażerów
 
     // Pętla główna generująca pasażerów
     while (!terminate_flag && gen_running_flag)
     {
-        int option = rand() % 3;
+        int option = rand() % 2;
         if (option == 0)
         {
             // Opcja 0: Generowanie dziecka z rodzicem (pasażer + opiekun)
@@ -264,8 +295,7 @@ void *generator_function(void *arg)
 
             // child
             int child_pid = grp;
-            used_pids[used_count++] = child_pid; // Dodanie PID dziecka do tablicy
-
+            used_count++;
             int child_age = rand() % 14 + 1;                // wiek 1 - 14
             do_passenger_job(child_pid, child_age, grp);    // Generowanie pasażera
 
@@ -273,23 +303,6 @@ void *generator_function(void *arg)
             int parent_pid = grp + 1000;                    // Generowanie identyfikatora rodzica
             int parent_age = rand() % 50 + 20;              // wiek 20 - 69
             do_passenger_job(parent_pid, parent_age, grp);  // Generowanie pasażera
-
-        }
-        else if (used_count > 0 && option == 1)
-        {
-            // Opcja 1: Powrót starego PID
-            if (passenger_count >= MAX_PASS)
-            {
-                printf("[GENERATOR] Reached MAX_PASS.\n");
-                break;
-            }
-
-            // Losowanie jednego z wcześniej używanych PIDów
-            int id_x = rand() % used_count;
-            int old_pid = used_pids[id_x];
-            int age = rand() % 80 + 1;
-            printf("[GENERATOR] Returning old_pid = %d with age = %d\n", old_pid, age);
-            do_passenger_job(old_pid, age, 0); // Generowanie pasażera
 
         }
         else
@@ -306,39 +319,45 @@ void *generator_function(void *arg)
                     break;
                 }
 
+                if (used_count >= 6000) 
+                {
+                    printf("[GENERATOR] Reached 6000 pid - STOP.\n"); // Zabezpieczenie przed przekroczeniem limitu PIDów
+                    break;
+                }
+
                 int age = rand() % 80 + 1; //wiek 1 - 80
 
                 // Jeśli wiek pasażera to dziecko (<15), to generujemy parę dziecko-rodzic w tej samej grupie
                 if (age < 15) 
                 {
-                    //Generujemy parę dziecko-rodzic w jednej grupie
+                    // Sprawdzamy, czy pozostało wystarczająco miejsca w batch_size, żeby wygenerować parę
+                    if (i + 1 >= batch_size) 
+                    {
+                        printf("[GENERATOR] Not enough space in batch for child-parent pair. Skipping.\n");
+                        continue; // Pomijamy i przechodzimy do następnej iteracji
+                    }
+
+                    i++; // żeby faktycznie generować odpowiednią ilość pasażerów
+
+                    // Generujemy parę dziecko-rodzic w jednej grupie
                     int grp = origin_pid + used_count;
                     
-                    //child
+                    // child
                     int child_pid = grp;
-                    used_pids[used_count++] = child_pid;
+                    used_count++;
                     do_passenger_job(child_pid, age, grp);
 
-                    //parent
+                    // parent
                     int parent_pid = grp + 1000;
                     int parent_age = rand() % 50 + 20; //wiek 20 - 69
-                    used_pids[used_count++] = parent_pid;
                     do_passenger_job(parent_pid, parent_age, grp);
-
                 }
                 else
                 {
                     // Zwykły pasażer, grupa = 0
                     int new_pid = origin_pid + used_count;
-                    used_pids[used_count] = new_pid;
                     used_count++;
                     do_passenger_job(new_pid, age, 0);
-                }
-
-                if (used_count >= 6000) 
-                {
-                    printf("[GENERATOR] Reached 6000 pid - STOP.\n"); // Zabezpieczenie przed przekroczeniem limitu PIDów
-                    break;
                 }
             }
         }
@@ -571,7 +590,7 @@ static void start_cashier()
     }
 }
 
-// --- Uruchomienia police ---
+// --- Uruchomienie police ---
 static void start_police()
 {
     // Sprawdzenie, czy sternik jest uruchomiony
@@ -607,7 +626,18 @@ int main()
     setbuf(stdout, NULL); // Wyłączenie buforowania dla standardowego wyjścia (stdout), aby wszystkie dane były natychmiastowo wyświetlane
     system("clear");
     printf("\033[1;38;5;15m                 __/\\__\n               /~~~~~~/\n           ~~~~~~~~~~~\n        ~~~~~~~~~~~~~\033[4;1;38;5;15m\t\t\tCRUISES\033[0m\n\033[1;38;5;15m      ~~~~~~~~~~~~~~~~\n       ~~~~~~~~~~~~~~~~~\n              | _ |\n              | _ |\n        \033[1;38;5;130m|=================|\033[0m\n\n");
-    
+
+    setup_sigchld_handler();
+    setup_sigrtmin2_handler();
+
+    // Tworzymy lub otwieramy semafor o nazwie "/can_generate"
+    sem = sem_open("/can_generate", O_CREAT, 0666, 0); // Inicjujemy semafor z wartością 0
+
+    if (sem == SEM_FAILED) {
+        perror("sem_open");
+        return 1;
+    }
+
     //Pytanie usera o czas symulacji
     int user_timeout = 0;
     while(1)
@@ -637,13 +667,20 @@ int main()
 
     // Uruchomienie procesów sternika i kasjera
     start_sternik();
-    usleep(200000);
     start_cashier();
-    usleep(200000);
 
     //tworzenie watku: generatora i timeout_killer_thread
-    pthread_create(&generator_thread, NULL, generator_function, NULL);
-    pthread_create(&timeout_killer_thread, NULL, time_killer_function, NULL);
+    if(pthread_create(&generator_thread, NULL, generator_function, NULL) != 0)
+    {
+        perror("pthread_create generator_function failed");
+        return 1;
+    }
+
+    if(pthread_create(&timeout_killer_thread, NULL, time_killer_function, NULL) != 0)
+    {
+        perror("pthread_create time_killer_function failed");
+        return 1;
+    }
 
     printf("[SCHEDULER] Commands: p => call police | q => end simulation (quit)\n");
 
@@ -662,6 +699,20 @@ int main()
                 end_sim();
                 break;
             }
+        }
+        else
+        {
+            // Jeśli sternik nie istnieje, wysyłamy sygnał do wszystkich pasażerów
+            for(int i = 0; i < passenger_count; i++)
+            {
+                if(pid_pass[i] > 0) 
+                {
+                    kill(pid_pass[i], SIGTERM);  // Wysyłanie SIGTERM do każdego pasażera
+                    printf("[SCHEDULER] Sent SIGTERM to passenger PID %d.\n", pid_pass[i]);
+                }
+            }
+            end_sim();
+            break;
         }
 
         fflush(stdout); // Wymuszenie wypisania danych na ekranie
@@ -709,6 +760,7 @@ int main()
     }
 
     if(!terminate_flag){end_sim();} // Jeśli symulacja nie została zakończona, wywołujemy end_sim()
+    sem_close(sem);
 
     // Oczekiwanie na zakończenie pracy wątków
     pthread_join(generator_thread, NULL);
